@@ -563,6 +563,34 @@
             office_photo_url: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=600&q=80',
             ocr_extracted_data: { companyName: 'Sunrise Logistics Hub', contactPerson: 'Rajinder Gill', phone: '+91 97110 54321', email: 'rgill@sunriselogistics.in', pincode: '201301' },
             created_at: new Date(Date.now() - 26 * 3600000).toISOString()
+        },
+        {
+            id: 'visit-104',
+            sales_rep_id: 'rep-002',
+            sales_rep_name: 'Priya Patel',
+            employee_id: 'EMP-102',
+            business_name: 'Nexus Retail Enterprises',
+            client_name: 'Nexus Retail Enterprises',
+            address_option_a: 'Unit 12, Express Towers, Nariman Point',
+            address_option_b: 'Nariman Point, Mumbai, Maharashtra 400021',
+            client_address: 'Unit 12, Express Towers, Nariman Point',
+            visit_time: new Date(Date.now() - 48 * 3600000).toISOString(),
+            latitude: 18.9256,
+            longitude: 72.8242,
+            location_address: 'Nariman Point, Mumbai, Maharashtra 400021',
+            contact_person_name: 'Sunil Kothari',
+            contact_person_phone: '+91 98201 11223',
+            contact_person_email: 'sunil.k@nexusretail.com',
+            pincode: '400021',
+            status: 'Follow-up Required',
+            follow_up_date: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0],
+            remarks: 'Met Regional VP of Retail Operations. Explored western region expansion and bulk POS integration.',
+            visiting_card_front_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
+            visiting_card_back_url: null,
+            visiting_card_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
+            office_photo_url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=600&q=80',
+            ocr_extracted_data: { companyName: 'Nexus Retail Enterprises', contactPerson: 'Sunil Kothari', phone: '+91 98201 11223', email: 'sunil.k@nexusretail.com', pincode: '400021' },
+            created_at: new Date(Date.now() - 48 * 3600000).toISOString()
         }
     ];
 
@@ -648,6 +676,43 @@
         return createdLocal;
     }
 
+    // --------------------------------------------------------------------------
+    // NORMALIZATION & COMMON ACCOUNTS SERVICE
+    // --------------------------------------------------------------------------
+    function normalizeBusinessName(name) {
+        return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    }
+
+    function getCommonAccountsMap(allVisits) {
+        const map = new Map(); // normalizedName -> { businessName, repIds: Set, repNames: Set, visits: [] }
+        (allVisits || []).forEach(v => {
+            const rawName = v.business_name || v.client_name;
+            if (!rawName) return;
+            const norm = normalizeBusinessName(rawName);
+            if (!norm) return;
+            if (!map.has(norm)) {
+                map.set(norm, {
+                    businessName: rawName.trim(),
+                    repIds: new Set(),
+                    repNames: new Set(),
+                    visits: []
+                });
+            }
+            const entry = map.get(norm);
+            if (v.sales_rep_id) entry.repIds.add(v.sales_rep_id);
+            if (v.sales_rep_name) entry.repNames.add(v.sales_rep_name.trim());
+            entry.visits.push(v);
+        });
+
+        const commonMap = new Map();
+        for (const [norm, data] of map.entries()) {
+            if (data.repNames.size >= 2 || data.repIds.size >= 2) {
+                commonMap.set(norm, data);
+            }
+        }
+        return commonMap;
+    }
+
     async function getClientVisits(filters = {}) {
         const supabase = getSupabase();
         let allVisits = [];
@@ -668,14 +733,36 @@
             allVisits = getLocalVisits();
         }
 
+        // Cache all visits and compute cross-rep common accounts map
+        State.allVisitsCache = allVisits;
+        State.commonAccountsMap = getCommonAccountsMap(allVisits);
+
         let filtered = [...allVisits];
 
-        // Sales Person Filter
-        if (filters.salesRep && filters.salesRep !== 'ALL') {
+        // 1. REP PRIVACY / ISOLATION:
+        // One sales representative MUST NOT be allowed to see other sales reps' visits or remarks
+        if (State.currentUser && State.currentUser.role === 'rep') {
+            const currentRepId = State.currentUser.id;
+            const currentRepName = (State.currentUser.name || '').toLowerCase();
+            filtered = filtered.filter(v => {
+                const repIdMatch = v.sales_rep_id && v.sales_rep_id === currentRepId;
+                const repNameMatch = v.sales_rep_name && v.sales_rep_name.toLowerCase() === currentRepName;
+                return repIdMatch || repNameMatch;
+            });
+        } else if (filters.salesRep && filters.salesRep !== 'ALL') {
+            // Manager mode can filter by any specific sales representative
             filtered = filtered.filter(v => v.sales_rep_id === filters.salesRep || (v.sales_rep_name && v.sales_rep_name.toLowerCase() === filters.salesRep.toLowerCase()));
         }
 
-        // Day / Date Filter
+        // 2. Common Accounts Only Filter
+        if (filters.commonOnly) {
+            filtered = filtered.filter(v => {
+                const norm = normalizeBusinessName(v.business_name || v.client_name);
+                return State.commonAccountsMap.has(norm);
+            });
+        }
+
+        // 3. Day / Date Filter
         if (filters.dayFilter && filters.dayFilter !== 'ALL') {
             const now = new Date();
             const todayStr = now.toISOString().split('T')[0];
@@ -689,18 +776,21 @@
             } else if (filters.dayFilter === 'THIS_WEEK') {
                 const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000);
                 filtered = filtered.filter(v => new Date(v.visit_time) >= sevenDaysAgo);
+            } else if (filters.dayFilter === 'THIS_MONTH') {
+                const monthStr = todayStr.slice(0, 7);
+                filtered = filtered.filter(v => v.visit_time && v.visit_time.startsWith(monthStr));
             } else if (filters.dayFilter.startsWith('DATE:')) {
                 const specificDate = filters.dayFilter.replace('DATE:', '');
                 filtered = filtered.filter(v => v.visit_time && v.visit_time.startsWith(specificDate));
             }
         }
 
-        // Status Filter
+        // 4. Status Filter
         if (filters.status && filters.status !== 'ALL') {
             filtered = filtered.filter(v => v.status === filters.status);
         }
 
-        // Keyword Search
+        // 5. Keyword Search
         if (filters.search && filters.search.trim()) {
             const query = filters.search.trim().toLowerCase();
             filtered = filtered.filter(v => {
@@ -735,7 +825,7 @@
     // --------------------------------------------------------------------------
     // EXPORT TO EXCEL (.xlsx) & CSV
     // --------------------------------------------------------------------------
-    function exportVisitsToExcel(visits) {
+    function exportVisitsToExcel(visits, customFilename = null) {
         if (!visits || !visits.length) {
             alert('No visits to export.');
             return;
@@ -746,6 +836,7 @@
             'Employee ID',
             'Visit Date & Time',
             'Business Name',
+            'Common Account (Shared)?',
             'Contact Person Name',
             'Contact Mobile Number',
             'Contact Email ID',
@@ -766,6 +857,8 @@
         const rows = visits.map(v => {
             const dateStr = v.visit_time ? new Date(v.visit_time).toLocaleString() : '';
             const bName = v.business_name || v.client_name || '';
+            const isCommon = State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(bName));
+            const commonInfo = isCommon ? 'YES (Shared Across Reps)' : 'No';
             const addrA = v.address_option_a || v.client_address || '';
             const addrB = v.address_option_b || v.location_address || '';
             const mapsUrl = (v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : '';
@@ -775,6 +868,7 @@
                 v.employee_id || '',
                 dateStr,
                 bName,
+                commonInfo,
                 v.contact_person_name || '',
                 v.contact_person_phone || '',
                 v.contact_person_email || '',
@@ -805,6 +899,7 @@
                 { wch: 14 }, // Emp ID
                 { wch: 20 }, // Visit Date & Time
                 { wch: 25 }, // Business Name
+                { wch: 26 }, // Common Account
                 { wch: 20 }, // Contact Person
                 { wch: 18 }, // Mobile
                 { wch: 24 }, // Email
@@ -822,13 +917,185 @@
                 { wch: 30 }  // Back Card URL
             ];
 
-            window.XLSX.utils.book_append_sheet(wb, ws, 'Sales Visits');
-            const fileName = `Sales_Visits_Report_${new Date().toISOString().split('T')[0]}.xlsx`;
+            const sheetName = State.currentUser?.role === 'rep' ? 'My Visits' : 'All Sales Visits';
+            window.XLSX.utils.book_append_sheet(wb, ws, sheetName);
+
+            let fileName = customFilename;
+            if (!fileName) {
+                if (State.currentUser && State.currentUser.role === 'rep') {
+                    const cleanName = (State.currentUser.name || 'Rep').replace(/[^a-zA-Z0-9]/g, '_');
+                    fileName = `My_Sales_Visits_${cleanName}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                } else {
+                    fileName = `Sales_Visits_Report_All_Reps_${new Date().toISOString().split('T')[0]}.xlsx`;
+                }
+            }
             window.XLSX.writeFile(wb, fileName);
         } else {
             // Fallback to CSV if SheetJS is offline
             exportVisitsToCsv(visits);
         }
+    }
+
+    function exportVisitsToCsv(visits) {
+        if (!visits || !visits.length) {
+            alert('No visits to export.');
+            return;
+        }
+
+        const headers = [
+            'Sales Representative', 'Employee ID', 'Visit Date & Time', 'Business Name', 'Common Account (Shared)?',
+            'Contact Person Name', 'Contact Mobile Number', 'Contact Email ID', 'Pin Code',
+            'Address Option A (Card / Manual)', 'Address Option B (Auto GPS Location)',
+            'Latitude', 'Longitude', 'Google Maps Link',
+            'Meeting Status', 'Follow-up Date', 'Remarks', 'Office Photo URL',
+            'Visiting Card Front URL', 'Visiting Card Back URL'
+        ];
+
+        const escapeCsv = (val) => {
+            if (val === null || val === undefined) return '""';
+            const str = String(val).replace(/"/g, '""');
+            return `"${str}"`;
+        };
+
+        const rows = visits.map(v => {
+            const bName = v.business_name || v.client_name || '';
+            const isCommon = State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(bName));
+            return [
+                escapeCsv(v.sales_rep_name),
+                escapeCsv(v.employee_id || ''),
+                escapeCsv(v.visit_time ? new Date(v.visit_time).toLocaleString() : ''),
+                escapeCsv(bName),
+                escapeCsv(isCommon ? 'YES' : 'NO'),
+                escapeCsv(v.contact_person_name),
+                escapeCsv(v.contact_person_phone),
+                escapeCsv(v.contact_person_email || ''),
+                escapeCsv(v.pincode || ''),
+                escapeCsv(v.address_option_a || v.client_address || ''),
+                escapeCsv(v.address_option_b || v.location_address || ''),
+                escapeCsv(v.latitude || ''),
+                escapeCsv(v.longitude || ''),
+                escapeCsv((v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : ''),
+                escapeCsv(v.status),
+                escapeCsv(v.follow_up_date || ''),
+                escapeCsv(v.remarks),
+                escapeCsv(v.office_photo_url || ''),
+                escapeCsv(v.visiting_card_front_url || v.visiting_card_url || ''),
+                escapeCsv(v.visiting_card_back_url || '')
+            ];
+        });
+
+        const csvContent = [headers.map(escapeCsv).join(','), ...rows.map(r => r.join(','))].join('\r\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        const fileName = (State.currentUser?.role === 'rep')
+            ? `My_Sales_Visits_${(State.currentUser.name || 'Rep').replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`
+            : `Sales_Visits_Report_${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = fileName;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(link.href), 1500);
+    }
+
+    // --------------------------------------------------------------------------
+    // MULTI-SHEET MIS EXCEL EXPORTER
+    // --------------------------------------------------------------------------
+    function exportMisReportToExcel(visits, rep, period) {
+        if (!window.XLSX || typeof window.XLSX.utils === 'undefined') {
+            alert('Excel exporter is still loading. Please retry.');
+            return;
+        }
+
+        const wb = window.XLSX.utils.book_new();
+
+        // 1. SHEET 1: Performance Summary & Scorecard
+        const totalVisits = visits.length;
+        const closed = visits.filter(v => v.status === 'Successful Closed').length;
+        const followups = visits.filter(v => v.status === 'Follow-up Required').length;
+        const conversionRate = totalVisits > 0 ? ((closed / totalVisits) * 100).toFixed(1) + '%' : '0%';
+        const commonVisits = visits.filter(v => State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(v.business_name || v.client_name)));
+
+        const summaryData = [
+            ['MANAGEMENT INFORMATION SYSTEM (MIS) REPORT', ''],
+            ['FIELD SALES EXECUTIVE PERFORMANCE SCORECARD', ''],
+            ['', ''],
+            ['Sales Representative Name:', rep.name || 'Sales Rep'],
+            ['Employee ID:', rep.employee_id || 'N/A'],
+            ['Designation / Role:', rep.designation || 'Field Sales Executive'],
+            ['Phone Number:', rep.phone || 'N/A'],
+            ['Reporting Period:', period || 'All Time'],
+            ['Report Generated On:', new Date().toLocaleString()],
+            ['', ''],
+            ['EXECUTIVE METRICS & KPIS', 'VALUE'],
+            ['Total Client Visits Completed:', totalVisits],
+            ['Deals Successfully Closed (Won):', closed],
+            ['Follow-up Pipeline in Progress:', followups],
+            ['Conversion Efficiency Rate:', conversionRate],
+            ['Common Business Accounts (Cross-Rep):', commonVisits.length]
+        ];
+        const wsSummary = window.XLSX.utils.aoa_to_sheet(summaryData);
+        wsSummary['!cols'] = [{ wch: 38 }, { wch: 32 }];
+        window.XLSX.utils.book_append_sheet(wb, wsSummary, 'MIS Performance Scorecard');
+
+        // 2. SHEET 2: Visits Activity Ledger
+        const headers = [
+            'Visit Date & Time', 'Business Name', 'Common Account (Shared)?', 'Contact Person Name', 'Mobile Number',
+            'Email ID', 'Pin Code', 'Status', 'Follow-up Date (11:30 AM)', 'Option A Address (Card/Manual)',
+            'Option B Verified GPS Address', 'Google Maps Link', 'Remarks & Notes'
+        ];
+        const visitRows = visits.map(v => {
+            const isCommon = State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(v.business_name || v.client_name));
+            return [
+                v.visit_time ? new Date(v.visit_time).toLocaleString() : '',
+                v.business_name || v.client_name || '',
+                isCommon ? 'YES (Multi-Rep Common Account)' : 'No',
+                v.contact_person_name || '',
+                v.contact_person_phone || '',
+                v.contact_person_email || '',
+                v.pincode || '',
+                v.status || '',
+                v.follow_up_date ? `${v.follow_up_date} at 11:30 AM` : '',
+                v.address_option_a || v.client_address || '',
+                v.address_option_b || v.location_address || '',
+                (v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : '',
+                v.remarks || ''
+            ];
+        });
+        const wsVisits = window.XLSX.utils.aoa_to_sheet([headers, ...visitRows]);
+        wsVisits['!cols'] = [
+            { wch: 22 }, { wch: 28 }, { wch: 28 }, { wch: 20 }, { wch: 18 },
+            { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 35 },
+            { wch: 35 }, { wch: 30 }, { wch: 40 }
+        ];
+        window.XLSX.utils.book_append_sheet(wb, wsVisits, 'Visit Activity Ledger');
+
+        // 3. SHEET 3: Common Accounts Overlap
+        const commonHeaders = ['Business Name', 'Visits by This Rep', 'Total Visits by All Reps', 'Other Sales Reps Involved', 'Status'];
+        const commonAccountRows = [];
+        if (State.commonAccountsMap) {
+            State.commonAccountsMap.forEach((entry, norm) => {
+                const myVisits = visits.filter(v => normalizeBusinessName(v.business_name || v.client_name) === norm);
+                if (myVisits.length > 0 || State.currentUser?.role === 'manager') {
+                    const otherReps = Array.from(entry.repNames).filter(n => n.toLowerCase() !== (rep.name || '').toLowerCase());
+                    commonAccountRows.push([
+                        entry.businessName,
+                        myVisits.length,
+                        entry.visits.length,
+                        otherReps.join(', ') || 'Shared with team',
+                        myVisits[0] ? myVisits[0].status : 'Multiple'
+                    ]);
+                }
+            });
+        }
+        const wsCommon = window.XLSX.utils.aoa_to_sheet([commonHeaders, ...commonAccountRows]);
+        wsCommon['!cols'] = [{ wch: 32 }, { wch: 18 }, { wch: 24 }, { wch: 35 }, { wch: 18 }];
+        window.XLSX.utils.book_append_sheet(wb, wsCommon, 'Common Accounts Overlap');
+
+        const cleanRep = (rep.name || 'Sales_Rep').replace(/[^a-zA-Z0-9]/g, '_');
+        const cleanPeriod = (period || 'ALL').replace(/[^a-zA-Z0-9]/g, '_');
+        const fileName = `MIS_Report_${cleanRep}_${cleanPeriod}_${new Date().toISOString().split('T')[0]}.xlsx`;
+        window.XLSX.writeFile(wb, fileName);
     }
 
     function exportVisitsToCsv(visits) {
@@ -1060,12 +1327,25 @@ DROP POLICY IF EXISTS "Public access to visit photos" ON storage.objects;
 CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon, authenticated USING (bucket_id = 'visit-photos') WITH CHECK (bucket_id = 'visit-photos');`;
 
     // --------------------------------------------------------------------------
-    // 7. APPLICATION STATE & UI CONTROLLER
+    // 7. APPLICATION STATE & USER SESSION MANAGEMENT
     // --------------------------------------------------------------------------
+    const USER_SESSION_STORAGE_KEY = 'sales_erp_active_user_session';
+    const DEFAULT_MANAGER_PIN = '1234';
+
     const State = {
         currentTab: 'new-visit',
+        currentUser: {
+            role: 'rep', // 'rep' or 'manager'
+            id: 'rep-001',
+            name: 'Rahul Sharma',
+            employee_id: 'EMP-101',
+            designation: 'Senior Sales Executive',
+            phone: '+91 98765 43210'
+        },
         salesTeam: [],
         visits: [],
+        allVisitsCache: [],
+        commonAccountsMap: new Map(),
         selectedGps: null,
         gpsAddress: '',
         visitingCardFrontFile: null,
@@ -1080,7 +1360,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             pincode: '',
             address: ''
         },
-        ocrRawText: ''
+        ocrRawText: '',
+        misSelectedPeriod: 'ALL'
     };
 
     function initLucideIcons() {
@@ -1089,7 +1370,531 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
     }
 
+    // --------------------------------------------------------------------------
+    // USER SESSION & ACCESS CONTROL
+    // --------------------------------------------------------------------------
+    function initUserSession() {
+        try {
+            const stored = localStorage.getItem(USER_SESSION_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (parsed && (parsed.role === 'rep' || parsed.role === 'manager')) {
+                    State.currentUser = parsed;
+                }
+            }
+        } catch (e) {}
+
+        updateUserSessionUI();
+        setupUserLoginModal();
+        setupManagerPinModal();
+        setupMisReportModal();
+    }
+
+    function saveUserSession(user) {
+        State.currentUser = user;
+        try {
+            localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(user));
+        } catch (e) {}
+        updateUserSessionUI();
+    }
+
+    function updateUserSessionUI() {
+        const u = State.currentUser;
+        const isManager = u.role === 'manager';
+
+        // Header active user pill
+        const avatar = document.getElementById('activeUserAvatar');
+        const nameText = document.getElementById('activeUserNameText');
+        const roleBadge = document.getElementById('activeUserRoleBadge');
+
+        if (avatar) {
+            avatar.textContent = isManager ? '🛡️' : (u.name || 'SR').slice(0, 2).toUpperCase();
+            avatar.className = isManager
+                ? 'w-7 h-7 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-sm'
+                : 'w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm';
+        }
+        if (nameText) {
+            nameText.textContent = isManager ? 'Manager / Admin' : (u.name || 'Sales Rep');
+        }
+        if (roleBadge) {
+            roleBadge.textContent = isManager ? 'Full Team Access (Admin)' : `${u.designation || 'Sales Rep'} (Private)`;
+            roleBadge.className = isManager ? 'inline-block text-[10px] text-purple-600 font-bold' : 'inline-block text-[10px] text-blue-600 font-medium';
+        }
+
+        // Dashboard titles & privacy notice
+        const dTitle = document.getElementById('dashboardViewTitle');
+        const dSub = document.getElementById('dashboardViewSubtitle');
+        const exportBtnText = document.getElementById('exportExcelBtnText');
+        const totalLabel = document.getElementById('statTotalVisitsLabel');
+
+        if (dTitle) {
+            dTitle.innerHTML = isManager
+                ? `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">🛡️ Manager Mode</span>`
+                : `My Sales Visits <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">🔒 Private Rep Mode</span>`;
+        }
+        if (dSub) {
+            dSub.textContent = isManager
+                ? 'Monitor all field rep activity, cross-rep visits, and deal statuses'
+                : `Viewing only visits and remarks for ${u.name}. Other sales reps cannot see your records.`;
+        }
+        if (exportBtnText) {
+            exportBtnText.textContent = isManager ? 'Download All Visits (.xlsx)' : 'Download My Visits (.xlsx)';
+        }
+        if (totalLabel) {
+            totalLabel.textContent = isManager ? 'All team visits' : 'Your recorded visits';
+        }
+
+        // Update Sales Rep dropdown in Dashboard filters
+        const salesRepSelect = document.getElementById('filterSalesRep');
+        const filterLockBadge = document.getElementById('salesRepFilterLockBadge');
+        if (salesRepSelect) {
+            if (!isManager) {
+                salesRepSelect.value = u.id;
+                salesRepSelect.disabled = true;
+                salesRepSelect.classList.add('cursor-not-allowed', 'opacity-80', 'bg-slate-100');
+                if (filterLockBadge) filterLockBadge.classList.remove('hidden');
+            } else {
+                salesRepSelect.disabled = false;
+                salesRepSelect.classList.remove('cursor-not-allowed', 'opacity-80', 'bg-slate-100');
+                if (filterLockBadge) filterLockBadge.classList.add('hidden');
+            }
+        }
+
+        // Update New Visit Form rep select
+        const newVisitRepSelect = document.getElementById('salesRepSelect');
+        const repLockHint = document.getElementById('salesRepLockHint');
+        if (newVisitRepSelect) {
+            if (!isManager) {
+                newVisitRepSelect.value = u.id;
+                newVisitRepSelect.disabled = true;
+                newVisitRepSelect.classList.add('bg-slate-100', 'cursor-not-allowed');
+                if (repLockHint) repLockHint.classList.remove('hidden');
+            } else {
+                newVisitRepSelect.disabled = false;
+                newVisitRepSelect.classList.remove('bg-slate-100', 'cursor-not-allowed');
+                if (repLockHint) repLockHint.classList.add('hidden');
+            }
+        }
+
+        initLucideIcons();
+    }
+
+    function setupUserLoginModal() {
+        const modal = document.getElementById('userLoginModal');
+        const closeBtn = document.getElementById('closeUserLoginModalBtn');
+        const cancelBtn = document.getElementById('cancelUserLoginModalBtn');
+        const unlockBtn = document.getElementById('unlockManagerBtn');
+        const pinInput = document.getElementById('managerPinInput');
+        const pinError = document.getElementById('managerPinError');
+
+        const closeModal = () => modal?.classList.add('hidden');
+
+        closeBtn?.addEventListener('click', closeModal);
+        cancelBtn?.addEventListener('click', closeModal);
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        unlockBtn?.addEventListener('click', () => {
+            const enteredPin = (pinInput?.value || '').trim();
+            if (enteredPin === DEFAULT_MANAGER_PIN) {
+                pinError?.classList.add('hidden');
+                pinInput.value = '';
+                saveUserSession({
+                    role: 'manager',
+                    id: 'admin',
+                    name: 'Manager / Admin',
+                    employee_id: 'MGR-01',
+                    designation: 'Sales Director',
+                    phone: ''
+                });
+                closeModal();
+                loadAndRenderVisits();
+                alert('🛡️ Manager Mode Unlocked! You now have full access to view all sales reps, visits, downloads, and team settings.');
+            } else {
+                if (pinError) {
+                    pinError.textContent = 'Invalid Manager PIN. Default PIN is 1234.';
+                    pinError.classList.remove('hidden');
+                }
+            }
+        });
+
+        pinInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') unlockBtn?.click();
+        });
+    }
+
+    window.openUserLoginModal = function() {
+        const modal = document.getElementById('userLoginModal');
+        const repList = document.getElementById('loginRepList');
+        const modalActiveAvatar = document.getElementById('modalActiveAvatar');
+        const modalActiveName = document.getElementById('modalActiveName');
+        const modalActiveRole = document.getElementById('modalActiveRole');
+        const pinInput = document.getElementById('managerPinInput');
+        const pinError = document.getElementById('managerPinError');
+
+        if (!modal) return;
+        if (pinInput) pinInput.value = '';
+        pinError?.classList.add('hidden');
+
+        const u = State.currentUser;
+        if (modalActiveAvatar) modalActiveAvatar.textContent = u.role === 'manager' ? '🛡️' : (u.name || 'SR').slice(0, 2).toUpperCase();
+        if (modalActiveName) modalActiveName.textContent = u.role === 'manager' ? 'Manager / Admin' : u.name;
+        if (modalActiveRole) modalActiveRole.textContent = u.role === 'manager' ? 'Full Access Mode (All Reps)' : `${u.designation || 'Sales Representative'} (Private Mode)`;
+
+        // Populate rep list
+        if (repList) {
+            const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+            repList.innerHTML = reps.map(m => {
+                const isSelected = u.role === 'rep' && (u.id === m.id || u.name === m.name);
+                return `
+                    <div onclick="window.selectSalesRepUser('${m.id}')" class="p-2.5 rounded-xl border ${isSelected ? 'border-blue-500 bg-blue-50/70' : 'border-slate-200 bg-white hover:bg-slate-50'} cursor-pointer flex items-center justify-between transition-colors">
+                        <div class="flex items-center space-x-2.5">
+                            <div class="w-8 h-8 rounded-lg ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'} flex items-center justify-center font-bold text-xs">
+                                ${(m.name || 'SR').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                                <h5 class="text-xs font-bold text-slate-800">${escapeHtml(m.name)}</h5>
+                                <p class="text-[10px] text-slate-500">${escapeHtml(m.designation || 'Sales Rep')} • ${escapeHtml(m.employee_id || 'ID')}</p>
+                            </div>
+                        </div>
+                        ${isSelected ? '<span class="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] text-blue-600 font-semibold hover:underline">Switch</span>'}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        modal.classList.remove('hidden');
+        initLucideIcons();
+    };
+
+    window.selectSalesRepUser = function(repId) {
+        const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const found = reps.find(m => m.id === repId);
+        if (found) {
+            saveUserSession({
+                role: 'rep',
+                id: found.id,
+                name: found.name,
+                employee_id: found.employee_id || '',
+                designation: found.designation || 'Sales Representative',
+                phone: found.phone || ''
+            });
+            document.getElementById('userLoginModal')?.classList.add('hidden');
+            loadAndRenderVisits();
+        }
+    };
+
+    let pendingManagerAction = null;
+
+    function promptManagerPin(onSuccess) {
+        pendingManagerAction = onSuccess;
+        const modal = document.getElementById('managerPinModal');
+        const pinInput = document.getElementById('quickPinInput');
+        const pinError = document.getElementById('quickPinError');
+        if (pinInput) pinInput.value = '';
+        pinError?.classList.add('hidden');
+        modal?.classList.remove('hidden');
+        pinInput?.focus();
+    }
+
+    function setupManagerPinModal() {
+        const modal = document.getElementById('managerPinModal');
+        const submitBtn = document.getElementById('submitQuickPinBtn');
+        const closeBtn = document.getElementById('closeQuickPinBtn');
+        const pinInput = document.getElementById('quickPinInput');
+        const pinError = document.getElementById('quickPinError');
+
+        const closeModal = () => modal?.classList.add('hidden');
+        closeBtn?.addEventListener('click', closeModal);
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        submitBtn?.addEventListener('click', () => {
+            const val = (pinInput?.value || '').trim();
+            if (val === DEFAULT_MANAGER_PIN) {
+                pinError?.classList.add('hidden');
+                closeModal();
+                saveUserSession({
+                    role: 'manager',
+                    id: 'admin',
+                    name: 'Manager / Admin',
+                    employee_id: 'MGR-01',
+                    designation: 'Sales Director',
+                    phone: ''
+                });
+                loadAndRenderVisits();
+                if (typeof pendingManagerAction === 'function') {
+                    pendingManagerAction();
+                    pendingManagerAction = null;
+                }
+            } else {
+                if (pinError) {
+                    pinError.textContent = 'Incorrect PIN. Default is 1234.';
+                    pinError.classList.remove('hidden');
+                }
+            }
+        });
+
+        pinInput?.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitBtn?.click();
+        });
+    }
+
+    // --------------------------------------------------------------------------
+    // MIS REPORT MODAL & RENDERER
+    // --------------------------------------------------------------------------
+    window.openMisReportModal = function(period = 'ALL') {
+        const modal = document.getElementById('misReportModal');
+        if (!modal) return;
+
+        State.misSelectedPeriod = period;
+        renderMisReport(period);
+        modal.classList.remove('hidden');
+        initLucideIcons();
+    };
+
+    function setupMisReportModal() {
+        const modal = document.getElementById('misReportModal');
+        const closeBtn = document.getElementById('closeMisReportModalBtn');
+        const bottomCloseBtn = document.getElementById('closeMisReportBottomBtn');
+        const downloadExcelBtn = document.getElementById('misDownloadExcelBtn');
+        const printPdfBtn = document.getElementById('misPrintPdfBtn');
+        const periodContainer = document.getElementById('misPeriodButtons');
+
+        const closeModal = () => modal?.classList.add('hidden');
+        closeBtn?.addEventListener('click', closeModal);
+        bottomCloseBtn?.addEventListener('click', closeModal);
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        // Period filter buttons
+        periodContainer?.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-period]');
+            if (!btn) return;
+            const period = btn.getAttribute('data-period');
+            State.misSelectedPeriod = period;
+
+            // Update button styles
+            periodContainer.querySelectorAll('button').forEach(b => {
+                b.className = 'mis-period-btn px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition-colors';
+            });
+            btn.className = 'mis-period-btn px-3 py-1.5 rounded-lg bg-white text-purple-700 font-bold shadow-sm transition-colors';
+
+            renderMisReport(period);
+        });
+
+        downloadExcelBtn?.addEventListener('click', () => {
+            const u = State.currentUser;
+            const period = State.misSelectedPeriod || 'ALL';
+            const visits = getFilteredVisitsForMis(period);
+            exportMisReportToExcel(visits, u, period);
+        });
+
+        printPdfBtn?.addEventListener('click', () => {
+            window.print();
+        });
+    }
+
+    function getFilteredVisitsForMis(period = 'ALL') {
+        let visits = [...(State.allVisitsCache || getLocalVisits())];
+
+        // If sales rep, strictly filter to their visits
+        if (State.currentUser && State.currentUser.role === 'rep') {
+            const repId = State.currentUser.id;
+            const repName = (State.currentUser.name || '').toLowerCase();
+            visits = visits.filter(v => v.sales_rep_id === repId || (v.sales_rep_name && v.sales_rep_name.toLowerCase() === repName));
+        }
+
+        const now = new Date();
+        const todayStr = now.toISOString().split('T')[0];
+
+        if (period === 'TODAY') {
+            visits = visits.filter(v => v.visit_time && v.visit_time.startsWith(todayStr));
+        } else if (period === 'THIS_WEEK') {
+            const sevenDaysAgo = new Date(now.getTime() - 7 * 86400000);
+            visits = visits.filter(v => new Date(v.visit_time) >= sevenDaysAgo);
+        } else if (period === 'THIS_MONTH') {
+            const monthStr = todayStr.slice(0, 7);
+            visits = visits.filter(v => v.visit_time && v.visit_time.startsWith(monthStr));
+        }
+
+        return visits;
+    }
+
+    function renderMisReport(period = 'ALL') {
+        const u = State.currentUser;
+        const repNameHeader = document.getElementById('misRepNameHeader');
+        const repEmpIdHeader = document.getElementById('misRepEmpIdHeader');
+        const badge = document.getElementById('misRepBadge');
+
+        if (repNameHeader) repNameHeader.textContent = u.role === 'manager' ? 'All Sales Representatives (Manager View)' : u.name;
+        if (repEmpIdHeader) repEmpIdHeader.textContent = u.role === 'manager' ? 'Executive Overview' : (u.employee_id || 'EMP-101');
+        if (badge) badge.textContent = u.role === 'manager' ? 'Company-wide MIS' : 'Personal MIS Ledger';
+
+        const visits = getFilteredVisitsForMis(period);
+        const total = visits.length;
+        const closed = visits.filter(v => v.status === 'Successful Closed').length;
+        const followups = visits.filter(v => v.status === 'Follow-up Required').length;
+        const convRate = total > 0 ? ((closed / total) * 100).toFixed(1) + '%' : '0%';
+
+        // Common accounts count
+        const commonMap = State.commonAccountsMap || new Map();
+        const commonVisits = visits.filter(v => commonMap.has(normalizeBusinessName(v.business_name || v.client_name)));
+
+        // Scorecard
+        const sTotal = document.getElementById('misStatTotalVisits');
+        const sClosed = document.getElementById('misStatClosedDeals');
+        const sFollow = document.getElementById('misStatFollowups');
+        const sConv = document.getElementById('misStatConversionRate');
+        const sCommon = document.getElementById('misStatCommonAccounts');
+
+        if (sTotal) sTotal.textContent = total;
+        if (sClosed) sClosed.textContent = closed;
+        if (sFollow) sFollow.textContent = followups;
+        if (sConv) sConv.textContent = convRate;
+        if (sCommon) sCommon.textContent = commonVisits.length;
+
+        // Pipeline bar
+        const pctClosed = total > 0 ? Math.round((closed / total) * 100) : 0;
+        const pctFollowup = total > 0 ? Math.round((followups / total) * 100) : 0;
+
+        const barClosed = document.getElementById('misBarClosed');
+        const barFollowup = document.getElementById('misBarFollowup');
+        const pctClosedText = document.getElementById('misPctClosed');
+        const pctFollowupText = document.getElementById('misPctFollowup');
+        const ratioText = document.getElementById('misPipelineRatioText');
+
+        if (barClosed) barClosed.style.width = `${pctClosed}%`;
+        if (barFollowup) barFollowup.style.width = `${pctFollowup}%`;
+        if (pctClosedText) pctClosedText.textContent = `${pctClosed}%`;
+        if (pctFollowupText) pctFollowupText.textContent = `${pctFollowup}%`;
+        if (ratioText) ratioText.textContent = `${closed} Closed Won (${pctClosed}%) • ${followups} Follow-up (${pctFollowup}%)`;
+
+        // Common accounts overlap list
+        const commonContainer = document.getElementById('misCommonAccountsContainer');
+        const commonBadge = document.getElementById('misCommonBadge');
+
+        const activeCommonAccounts = [];
+        commonMap.forEach((entry, norm) => {
+            const repVisits = visits.filter(v => normalizeBusinessName(v.business_name || v.client_name) === norm);
+            if (repVisits.length > 0 || u.role === 'manager') {
+                activeCommonAccounts.push({
+                    name: entry.businessName,
+                    myVisits: repVisits,
+                    allVisits: entry.visits,
+                    reps: Array.from(entry.repNames)
+                });
+            }
+        });
+
+        if (commonBadge) commonBadge.textContent = `${activeCommonAccounts.length} Common Accounts`;
+
+        if (commonContainer) {
+            if (activeCommonAccounts.length === 0) {
+                commonContainer.innerHTML = `
+                    <div class="p-4 text-center text-xs text-slate-400">
+                        No cross-rep common accounts detected in this period.
+                    </div>
+                `;
+            } else {
+                commonContainer.innerHTML = activeCommonAccounts.map(acc => {
+                    const otherReps = acc.reps.filter(r => r.toLowerCase() !== (u.name || '').toLowerCase());
+                    return `
+                        <div class="py-2.5 px-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div class="flex items-center space-x-2.5">
+                                <div class="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                                    🏢
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <h5 class="text-xs font-bold text-slate-900">${escapeHtml(acc.name)}</h5>
+                                        <span class="text-[10px] bg-purple-100 text-purple-800 font-extrabold px-2 py-0.5 rounded-full">Common Client</span>
+                                    </div>
+                                    <p class="text-[11px] text-purple-700 mt-0.5">
+                                        Shared with: <strong>${escapeHtml(otherReps.join(', ') || 'Team members')}</strong> • Total visits logged: <strong>${acc.allVisits.length}</strong>
+                                    </p>
+                                </div>
+                            </div>
+                            <span class="text-[11px] text-slate-500 font-medium">
+                                ${acc.myVisits.length} visit(s) by you
+                            </span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        // Visits Activity Ledger table
+        const tbody = document.getElementById('misVisitTableBody');
+        const ledgerCount = document.getElementById('misLedgerCount');
+
+        if (ledgerCount) ledgerCount.textContent = `${visits.length} visits found`;
+
+        if (tbody) {
+            if (visits.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="p-6 text-center text-slate-400 text-xs">
+                            No visits recorded in this period.
+                        </td>
+                    </tr>
+                `;
+            } else {
+                tbody.innerHTML = visits.map(v => {
+                    const bName = v.business_name || v.client_name || 'Business';
+                    const isCommon = commonMap.has(normalizeBusinessName(bName));
+                    const isClosed = v.status === 'Successful Closed';
+                    const dateStr = v.visit_time ? new Date(v.visit_time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+                    const timeStr = v.visit_time ? new Date(v.visit_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+
+                    return `
+                        <tr class="hover:bg-slate-50/80 transition-colors border-b border-slate-100">
+                            <td class="p-2.5 whitespace-nowrap text-slate-700 font-medium">
+                                <div>${dateStr}</div>
+                                <div class="text-[10px] text-slate-400 font-mono">${timeStr}</div>
+                            </td>
+                            <td class="p-2.5">
+                                <div class="font-bold text-slate-900">${escapeHtml(bName)}</div>
+                                ${isCommon ? '<span class="inline-block mt-0.5 text-[9px] bg-purple-600 text-white font-extrabold px-1.5 py-0.5 rounded uppercase tracking-wider">Common Account</span>' : ''}
+                            </td>
+                            <td class="p-2.5">
+                                <div class="font-medium text-slate-800">${escapeHtml(v.contact_person_name || '-')}</div>
+                                <div class="text-[10px] text-slate-500 font-mono">${escapeHtml(v.contact_person_phone || '')}</div>
+                            </td>
+                            <td class="p-2.5 whitespace-nowrap">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${isClosed ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">
+                                    ${escapeHtml(v.status)}
+                                </span>
+                            </td>
+                            <td class="p-2.5 max-w-xs truncate text-[11px] text-slate-600">
+                                <div><strong class="text-slate-500">A:</strong> ${escapeHtml(v.address_option_a || v.client_address || '-')}</div>
+                                <div class="text-[10px] text-emerald-700 truncate"><strong class="text-emerald-800">B (GPS):</strong> ${escapeHtml(v.address_option_b || v.location_address || '-')}</div>
+                            </td>
+                            <td class="p-2.5 whitespace-nowrap text-[11px] font-medium text-slate-700">
+                                ${v.follow_up_date ? `<span class="bg-amber-50 text-amber-900 border border-amber-200 px-2 py-0.5 rounded-lg font-bold">${v.follow_up_date} (11:30 AM)</span>` : '-'}
+                            </td>
+                            <td class="p-2.5 max-w-xs text-[11px] text-slate-600">
+                                ${escapeHtml(v.remarks || '-')}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+            }
+        }
+
+        initLucideIcons();
+    }
+
     function switchTab(tabKey) {
+        // Protect Settings tab for sales reps: prompt for PIN
+        if (tabKey === 'settings' && State.currentUser && State.currentUser.role === 'rep') {
+            promptManagerPin(() => switchTab('settings'));
+            return;
+        }
+
         State.currentTab = tabKey;
 
         const views = {
@@ -1260,6 +2065,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             });
             if (currentFilterVal) filterRepSelect.value = currentFilterVal;
         }
+
+        updateUserSessionUI();
     }
 
     // --------------------------------------------------------------------------
@@ -1549,57 +2356,71 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     // --------------------------------------------------------------------------
-    // BUSINESS NAME DUPLICATION VALIDATION
+    // BUSINESS NAME DUPLICATION & COMMON ACCOUNT VALIDATION
     // --------------------------------------------------------------------------
-    function normalizeBusinessName(name) {
-        return (name || '').trim().toLowerCase().replace(/\s+/g, ' ');
-    }
-
     async function checkBusinessNameDuplication(businessName) {
         if (!businessName || !businessName.trim()) {
-            return { isDuplicate: false, existingVisit: null };
+            return { isDuplicate: false, isCommon: false, existingVisit: null, otherRepNames: [] };
         }
 
         const normalized = normalizeBusinessName(businessName);
         if (normalized.length < 2) {
-            return { isDuplicate: false, existingVisit: null };
+            return { isDuplicate: false, isCommon: false, existingVisit: null, otherRepNames: [] };
         }
 
-        // 1. Check local visits (State.visits and getLocalVisits())
-        const allLocal = (State.visits && State.visits.length) ? State.visits : getLocalVisits();
-        const localMatch = allLocal.find(v => {
+        // Check against local and cached visits
+        const allLocal = (State.allVisitsCache && State.allVisitsCache.length)
+            ? State.allVisitsCache
+            : ((State.visits && State.visits.length) ? State.visits : getLocalVisits());
+        const currentRepId = State.currentUser?.id;
+        const currentRepName = (State.currentUser?.name || '').toLowerCase();
+
+        const matches = allLocal.filter(v => {
             const existing = normalizeBusinessName(v.business_name || v.client_name);
             return existing === normalized;
         });
 
-        if (localMatch) {
-            return { isDuplicate: true, existingVisit: localMatch, source: 'local' };
-        }
+        if (matches.length > 0) {
+            // Check if already visited by the SAME sales rep
+            const sameRepMatch = matches.find(v => {
+                const repIdMatch = v.sales_rep_id && v.sales_rep_id === currentRepId;
+                const repNameMatch = v.sales_rep_name && v.sales_rep_name.toLowerCase() === currentRepName;
+                return repIdMatch || repNameMatch;
+            });
 
-        // 2. Check Supabase database if connected
-        const supabase = getSupabase();
-        if (supabase) {
-            try {
-                const { data, error } = await supabase
-                    .from('client_visits')
-                    .select('id, business_name, client_name, sales_rep_name, visit_time, status')
-                    .ilike('business_name', businessName.trim())
-                    .limit(1);
+            // Reps who also visited this business
+            const otherReps = matches
+                .filter(v => (v.sales_rep_name && v.sales_rep_name.toLowerCase() !== currentRepName))
+                .map(v => v.sales_rep_name || 'Other Rep');
+            const uniqueOtherReps = Array.from(new Set(otherReps));
 
-                if (!error && data && data.length > 0) {
-                    return { isDuplicate: true, existingVisit: data[0], source: 'supabase' };
-                }
-            } catch (e) {
-                console.warn('Supabase duplicate lookup failed:', e);
+            if (sameRepMatch) {
+                // Same rep already logged this: Strictly blocked to prevent duplication
+                return {
+                    isDuplicate: true,
+                    isCommon: uniqueOtherReps.length > 0,
+                    existingVisit: sameRepMatch,
+                    otherRepNames: uniqueOtherReps
+                };
+            } else {
+                // Logged by another sales rep: This is a Common Account (allowed & highlighted)!
+                return {
+                    isDuplicate: false,
+                    isCommon: true,
+                    existingVisit: matches[0],
+                    otherRepNames: uniqueOtherReps
+                };
             }
         }
 
-        return { isDuplicate: false, existingVisit: null };
+        return { isDuplicate: false, isCommon: false, existingVisit: null, otherRepNames: [] };
     }
 
     async function validateBusinessNameUI(inputName, fromCard = false) {
         const warningBox = document.getElementById('duplicateBusinessWarning');
         const detailsElem = document.getElementById('duplicateBusinessDetails');
+        const commonBanner = document.getElementById('commonAccountBanner');
+        const commonDetails = document.getElementById('commonAccountDetails');
         const statusBadge = document.getElementById('businessNameStatusBadge');
         const nameInput = document.getElementById('businessNameInput');
 
@@ -1608,8 +2429,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const trimmed = (inputName || '').trim();
         if (!trimmed || trimmed.length < 2) {
             warningBox?.classList.add('hidden');
+            commonBanner?.classList.add('hidden');
             statusBadge?.classList.add('hidden');
-            nameInput.classList.remove('border-rose-500', 'bg-rose-50/40', 'focus:ring-rose-500');
+            nameInput.classList.remove('border-rose-500', 'bg-rose-50/40', 'focus:ring-rose-500', 'border-purple-400', 'bg-purple-50/30', 'focus:ring-purple-500');
             nameInput.classList.add('border-slate-200', 'bg-slate-50', 'focus:ring-blue-500');
             State.isBusinessNameDuplicate = false;
             return false;
@@ -1617,52 +2439,73 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         const check = await checkBusinessNameDuplication(trimmed);
 
-        if (check.isDuplicate && check.existingVisit) {
+        if (check.isDuplicate) {
+            // Duplicate by the SAME sales rep: Blocked
             State.isBusinessNameDuplicate = true;
-            const ex = check.existingVisit;
-            const vDate = ex.visit_time ? new Date(ex.visit_time).toLocaleDateString('en-US', {
-                month: 'short', day: 'numeric', year: 'numeric'
-            }) : 'previously';
-            const repName = ex.sales_rep_name || 'another sales rep';
-
-            // Red styling for input
-            nameInput.classList.remove('border-slate-200', 'bg-slate-50', 'focus:ring-blue-500');
+            nameInput.classList.remove('border-slate-200', 'bg-slate-50', 'focus:ring-blue-500', 'border-purple-400', 'bg-purple-50/30', 'focus:ring-purple-500');
             nameInput.classList.add('border-rose-500', 'bg-rose-50/40', 'focus:ring-rose-500');
 
-            // Status Badge
             if (statusBadge) {
                 statusBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 shadow-sm';
-                statusBadge.textContent = 'Already Exists ⛔';
+                statusBadge.textContent = 'Already Recorded by You ⛔';
                 statusBadge.classList.remove('hidden');
             }
 
-            // Warning details
             if (detailsElem) {
+                const vDate = check.existingVisit?.visit_time ? new Date(check.existingVisit.visit_time).toLocaleDateString('en-US', {
+                    month: 'short', day: 'numeric', year: 'numeric'
+                }) : 'previously';
                 detailsElem.innerHTML = `
-                    <strong>"${escapeHtml(ex.business_name || ex.client_name || trimmed)}"</strong> was already recorded on <strong>${vDate}</strong> by <strong>${escapeHtml(repName)}</strong>.<br>
-                    <span class="font-bold text-rose-800">Duplicate business names are strictly blocked in the ERP. Please enter a different business name.</span>
+                    <strong>"${escapeHtml(trimmed)}"</strong> has already been visited by you on <strong>${vDate}</strong>.<br>
+                    <span class="font-bold text-rose-800">Duplicate visits to the same business by the same sales rep are blocked in the ERP.</span>
                 `;
             }
             warningBox?.classList.remove('hidden');
+            commonBanner?.classList.add('hidden');
             initLucideIcons();
 
             if (fromCard) {
-                alert(`⚠️ Visiting Card Alert: Duplicate Business Name!\n\nThe company name "${trimmed}" on this visiting card is already registered in the system (recorded on ${vDate} by ${repName}).\n\nDuplicate business names are not permitted.`);
+                alert(`⚠️ Duplicate Warning: You have already logged a visit for "${trimmed}". Duplicate entries by the same sales person are not permitted.`);
+            }
+            return true;
+        } else if (check.isCommon) {
+            // Common Account with another rep: HIGHLIGHTED & ALLOWED
+            State.isBusinessNameDuplicate = false;
+            warningBox?.classList.add('hidden');
+
+            nameInput.classList.remove('border-slate-200', 'bg-slate-50', 'border-rose-500', 'bg-rose-50/40', 'focus:ring-rose-500');
+            nameInput.classList.add('border-purple-400', 'bg-purple-50/30', 'focus:ring-purple-500');
+
+            if (statusBadge) {
+                statusBadge.className = 'text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-300 shadow-sm';
+                statusBadge.textContent = '🏢 Common Account ✓';
+                statusBadge.classList.remove('hidden');
             }
 
-            return true;
+            if (commonDetails) {
+                const otherNames = check.otherRepNames.join(', ') || 'other team members';
+                commonDetails.innerHTML = `
+                    <strong>"${escapeHtml(trimmed)}"</strong> is a <strong>Common Corporate Account</strong> also handled by <strong>${escapeHtml(otherNames)}</strong>.<br>
+                    This visit will be saved under your name and highlighted as a shared account on your dashboard and MIS report.
+                `;
+            }
+            commonBanner?.classList.remove('hidden');
+            initLucideIcons();
+            return false;
         } else {
-            // Unique and Available
+            // Unique account
             State.isBusinessNameDuplicate = false;
-            nameInput.classList.remove('border-rose-500', 'bg-rose-50/40', 'focus:ring-rose-500');
+            warningBox?.classList.add('hidden');
+            commonBanner?.classList.add('hidden');
+
+            nameInput.classList.remove('border-rose-500', 'bg-rose-50/40', 'focus:ring-rose-500', 'border-purple-400', 'bg-purple-50/30', 'focus:ring-purple-500');
             nameInput.classList.add('border-slate-200', 'bg-slate-50', 'focus:ring-blue-500');
 
             if (statusBadge) {
                 statusBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 shadow-sm';
-                statusBadge.textContent = 'Unique & Available ✓';
+                statusBadge.textContent = 'Unique Account ✓';
                 statusBadge.classList.remove('hidden');
             }
-            warningBox?.classList.add('hidden');
             return false;
         }
     }
@@ -2003,12 +2846,16 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // --------------------------------------------------------------------------
     // DASHBOARD FILTERS & EXCEL EXPORT
     // --------------------------------------------------------------------------
+    // --------------------------------------------------------------------------
+    // DASHBOARD FILTERS & EXCEL EXPORT
+    // --------------------------------------------------------------------------
     function setupDashboardFilters() {
         const filterSalesRep = document.getElementById('filterSalesRep');
         const filterDay = document.getElementById('filterDay');
         const filterCustomDate = document.getElementById('filterCustomDateInput');
         const filterStatus = document.getElementById('filterStatus');
         const filterSearch = document.getElementById('filterSearch');
+        const filterCommonOnly = document.getElementById('filterCommonAccountsOnly');
         const refreshBtn = document.getElementById('refreshVisitsBtn');
         const exportCsvBtn = document.getElementById('exportCsvBtn');
         const exportExcelBtn = document.getElementById('exportExcelBtn');
@@ -2018,6 +2865,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         filterSalesRep?.addEventListener('change', handleFilterChange);
         filterStatus?.addEventListener('change', handleFilterChange);
         filterSearch?.addEventListener('input', debounce(handleFilterChange, 300));
+        filterCommonOnly?.addEventListener('change', handleFilterChange);
 
         filterDay?.addEventListener('change', () => {
             if (filterDay.value === 'CUSTOM') {
@@ -2041,6 +2889,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const filterCustomDate = document.getElementById('filterCustomDateInput')?.value;
         const filterStatus = document.getElementById('filterStatus')?.value || 'ALL';
         const filterSearch = document.getElementById('filterSearch')?.value || '';
+        const filterCommonOnly = document.getElementById('filterCommonAccountsOnly')?.checked || false;
 
         let dayFilterParam = filterDay;
         if (filterDay === 'CUSTOM' && filterCustomDate) {
@@ -2052,7 +2901,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 salesRep: filterSalesRep,
                 dayFilter: dayFilterParam,
                 status: filterStatus,
-                search: filterSearch
+                search: filterSearch,
+                commonOnly: filterCommonOnly
             });
 
             State.visits = visits;
@@ -2064,10 +2914,23 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     function updateKpiStats(visits) {
-        document.getElementById('statTotalVisits').textContent = visits.length;
-        document.getElementById('statClosedDeals').textContent = visits.filter(v => v.status === 'Successful Closed').length;
-        document.getElementById('statFollowups').textContent = visits.filter(v => v.status === 'Follow-up Required').length;
-        document.getElementById('statActiveReps').textContent = new Set(visits.map(v => v.sales_rep_name || v.sales_rep_id)).size;
+        const total = visits.length;
+        const closed = visits.filter(v => v.status === 'Successful Closed').length;
+        const followups = visits.filter(v => v.status === 'Follow-up Required').length;
+        const convRate = total > 0 ? ((closed / total) * 100).toFixed(1) + '%' : '0%';
+        const commonCount = visits.filter(v => State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(v.business_name || v.client_name))).length;
+
+        const totalElem = document.getElementById('statTotalVisits');
+        const closedElem = document.getElementById('statClosedDeals');
+        const followElem = document.getElementById('statFollowups');
+        const convElem = document.getElementById('statConversionRate');
+        const commonElem = document.getElementById('statCommonAccounts');
+
+        if (totalElem) totalElem.textContent = total;
+        if (closedElem) closedElem.textContent = closed;
+        if (followElem) followElem.textContent = followups;
+        if (convElem) convElem.textContent = convRate;
+        if (commonElem) commonElem.textContent = commonCount;
     }
 
     function renderTodayFollowupReminders() {
@@ -2171,16 +3034,48 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const addrOptionA = visit.address_option_a || visit.client_address || 'Address not specified';
             const addrOptionB = visit.address_option_b || visit.location_address || '';
 
+            // Common Account Overlap Check
+            const normName = normalizeBusinessName(businessName);
+            const isCommon = State.commonAccountsMap && State.commonAccountsMap.has(normName);
+            const commonEntry = isCommon ? State.commonAccountsMap.get(normName) : null;
+            const otherReps = commonEntry
+                ? Array.from(commonEntry.repNames).filter(n => n.toLowerCase() !== (visit.sales_rep_name || '').toLowerCase())
+                : [];
+            const otherRepsText = otherReps.join(', ');
+
+            const cardBorderClass = isCommon
+                ? 'border-2 border-purple-400 bg-gradient-to-br from-purple-50/40 via-white to-indigo-50/20 shadow-md ring-1 ring-purple-200'
+                : 'border border-slate-200 shadow-sm';
+
             return `
-                <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-shadow space-y-4">
+                <div class="bg-white rounded-2xl p-5 ${cardBorderClass} hover:shadow-md transition-shadow space-y-4">
+                    
+                    ${isCommon ? `
+                        <!-- Prominent Common Account Highlight Banner -->
+                        <div class="p-2.5 bg-purple-100/70 border border-purple-200/80 rounded-xl text-xs text-purple-950 flex flex-col sm:flex-row sm:items-center justify-between gap-1 shadow-sm">
+                            <div class="flex items-center gap-1.5 font-bold">
+                                <i data-lucide="layers" class="w-4 h-4 text-purple-700 flex-shrink-0"></i>
+                                <span>🏢 Common Account (Cross-Rep Client)</span>
+                            </div>
+                            <span class="text-[11px] text-purple-800 font-medium">
+                                ${otherRepsText ? `Also visited by: <strong>${escapeHtml(otherRepsText)}</strong>` : 'Shared across multiple sales reps'}
+                            </span>
+                        </div>
+                    ` : ''}
+
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
                         <div class="flex items-center space-x-3">
-                            <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-sm">
+                            <div class="w-10 h-10 rounded-xl ${isCommon ? 'bg-purple-100 text-purple-700 ring-2 ring-purple-300' : 'bg-blue-50 text-blue-600'} flex items-center justify-center font-bold text-sm">
                                 ${(visit.sales_rep_name || 'SR').slice(0, 2).toUpperCase()}
                             </div>
                             <div>
-                                <div class="flex items-center gap-2">
-                                    <span class="font-bold text-slate-900 text-base">${escapeHtml(businessName)}</span>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="font-extrabold text-slate-900 text-base">${escapeHtml(businessName)}</span>
+                                    ${isCommon ? `
+                                        <span class="inline-flex items-center gap-1 text-[10px] font-extrabold bg-purple-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
+                                            <i data-lucide="layers" class="w-3 h-3"></i> Common
+                                        </span>
+                                    ` : ''}
                                 </div>
                                 <div class="text-xs text-slate-500 flex items-center gap-2">
                                     <span class="font-medium text-blue-600">${escapeHtml(visit.sales_rep_name)}</span>
@@ -2593,6 +3488,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         setupSupabaseConfig();
         setupLightbox();
 
+        initUserSession();
         updateConnectionIndicator();
         await loadSalesTeam();
         await loadAndRenderVisits();
@@ -2600,7 +3496,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         // Auto-detect live GPS location on page launch so Option B is pre-populated
         captureLiveGpsLocation(false);
 
-        console.log('SalesERP: Initialized successfully with Front/Back cards, Smart OCR, Option A/B, and Excel Export!');
+        console.log('SalesERP: Initialized successfully with Rep Privacy, Common Account Highlighting, and MIS Reports!');
     }
 
     if (document.readyState === 'loading') {

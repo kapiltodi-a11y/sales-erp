@@ -86,3 +86,36 @@ body {
     background-color: rgba(15, 23, 42, 0.75);
     backdrop-filter: blur(4px);
 }
+
+/* Print Styles for MIS Performance Report */
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    #misReportModal,
+    #misReportModal * {
+        visibility: visible;
+    }
+    #misReportModal {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: auto;
+        max-height: none !important;
+        overflow: visible !important;
+        background: white !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    #misReportModal .modal-backdrop {
+        background: transparent !important;
+    }
+    #closeMisReportModalBtn,
+    #closeMisReportBottomBtn,
+    #misDownloadExcelBtn,
+    #misPrintPdfBtn,
+    #misPeriodButtons {
+        display: none !important;
+    }
+}

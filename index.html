@@ -67,18 +67,33 @@
 
             <!-- Desktop Tab Buttons -->
             <nav class="hidden md:flex items-center space-x-1 bg-slate-100 p-1 rounded-xl">
-                <button id="tabBtnNewVisitDesk" onclick="window.switchAppTab('new-visit')" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-white text-blue-600 shadow-sm flex items-center gap-2">
-                    <i data-lucide="map-pin" class="w-4 h-4"></i> New Visit (Mobile)
+                <button id="tabBtnNewVisitDesk" onclick="window.switchAppTab('new-visit')" class="tab-btn px-3.5 py-2 rounded-lg text-sm font-medium transition-colors bg-white text-blue-600 shadow-sm flex items-center gap-2">
+                    <i data-lucide="map-pin" class="w-4 h-4"></i> New Visit
                 </button>
-                <button id="tabBtnVisitsDesk" onclick="window.switchAppTab('visits')" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 flex items-center gap-2">
-                    <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Visits Dashboard
+                <button id="tabBtnVisitsDesk" onclick="window.switchAppTab('visits')" class="tab-btn px-3.5 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 flex items-center gap-2">
+                    <i data-lucide="layout-dashboard" class="w-4 h-4"></i> Dashboard
                 </button>
-                <button id="tabBtnSettingsDesk" onclick="window.switchAppTab('settings')" class="tab-btn px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 flex items-center gap-2">
+                <button id="tabBtnMisDesk" onclick="window.openMisReportModal()" class="tab-btn px-3.5 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-purple-700 flex items-center gap-2">
+                    <i data-lucide="bar-chart-3" class="w-4 h-4 text-purple-600"></i> MIS Report
+                </button>
+                <button id="tabBtnSettingsDesk" onclick="window.switchAppTab('settings')" class="tab-btn px-3.5 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 flex items-center gap-2">
                     <i data-lucide="settings" class="w-4 h-4"></i> Settings
                 </button>
             </nav>
 
             <div class="flex items-center space-x-2">
+                <!-- Active User Session Switcher Pill -->
+                <button id="activeUserPillBtn" onclick="window.openUserLoginModal()" class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors shadow-sm group" title="Switch User / Manager Mode">
+                    <div id="activeUserAvatar" class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                        RS
+                    </div>
+                    <div class="text-left leading-tight hidden sm:block">
+                        <span id="activeUserNameText" class="block text-xs font-bold text-slate-800">Rahul Sharma</span>
+                        <span id="activeUserRoleBadge" class="inline-block text-[10px] text-blue-600 font-medium">Sales Rep (Private)</span>
+                    </div>
+                    <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-colors"></i>
+                </button>
+
                 <button id="quickHelpBtn" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition-colors" title="Supabase & GitHub Guide">
                     <i data-lucide="help-circle" class="w-5 h-5"></i>
                 </button>
@@ -104,10 +119,21 @@
                     <span id="currentTimeDisplay" class="text-xs bg-white/20 px-2.5 py-1 rounded-full font-mono"></span>
                 </div>
                 <div>
-                    <label for="salesRepSelect" class="block text-xs uppercase tracking-wider font-semibold text-blue-100 mb-1">Select Your Name</label>
+                    <div class="flex items-center justify-between mb-1">
+                        <label for="salesRepSelect" class="block text-xs uppercase tracking-wider font-semibold text-blue-100">
+                            Logged in Sales Person
+                        </label>
+                        <button type="button" onclick="window.openUserLoginModal()" class="text-[11px] text-blue-200 hover:text-white underline font-medium flex items-center gap-1">
+                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> Switch User
+                        </button>
+                    </div>
                     <select id="salesRepSelect" class="w-full bg-white text-slate-900 rounded-xl px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-blue-300 border-0 outline-none shadow-sm">
                         <option value="">-- Choose Sales Person --</option>
                     </select>
+                    <p id="salesRepLockHint" class="text-[11px] text-blue-200 mt-1.5 flex items-center gap-1">
+                        <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+                        <span>Visits logged here are private to your account. Other reps cannot see your remarks.</span>
+                    </p>
                 </div>
             </div>
 
@@ -271,6 +297,20 @@
                         </div>
                         <p id="duplicateBusinessDetails" class="text-[11px] text-rose-700 leading-snug">
                             This business name is already registered in the system. Duplicate business names are not permitted.
+                        </p>
+                    </div>
+
+                    <!-- Common Business Name (Multi-Rep Account) Highlight Banner -->
+                    <div id="commonAccountBanner" class="hidden mt-2 p-3 bg-purple-50 border-2 border-purple-300 rounded-xl text-xs text-purple-900 space-y-1.5 shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-1.5 font-black text-purple-900 text-xs">
+                                <i data-lucide="layers" class="w-4 h-4 text-purple-600 flex-shrink-0"></i>
+                                <span>COMMON ACCOUNT DETECTED (CROSS-REP)</span>
+                            </div>
+                            <span class="text-[10px] bg-purple-200 text-purple-900 px-2 py-0.5 rounded-full font-extrabold">Shared Account</span>
+                        </div>
+                        <p id="commonAccountDetails" class="text-[11px] text-purple-800 leading-snug">
+                            This business is common between multiple sales representatives in your team.
                         </p>
                     </div>
                 </div>
@@ -473,12 +513,24 @@
             <!-- Dashboard Header & KPI Metrics -->
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Sales Visits Overview</h2>
-                    <p class="text-sm text-slate-500">Monitor field rep activity, daily visits, remarks, and deal statuses</p>
+                    <h2 id="dashboardViewTitle" class="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                        My Sales Visits
+                        <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                            🔒 Private Rep Mode
+                        </span>
+                    </h2>
+                    <p id="dashboardViewSubtitle" class="text-sm text-slate-500">
+                        Viewing only your personal visit records and remarks. Other sales reps cannot see your data.
+                    </p>
                 </div>
-                <div class="flex items-center space-x-2">
-                    <button id="exportExcelBtn" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 shadow-sm transition-colors">
-                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Download Excel (.xlsx)
+                <div class="flex items-center flex-wrap gap-2">
+                    <button id="viewMisReportBtn" onclick="window.openMisReportModal()" class="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-medium text-sm flex items-center gap-1.5 shadow-sm transition-colors">
+                        <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                        <span>My MIS Report</span>
+                    </button>
+                    <button id="exportExcelBtn" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-medium text-sm flex items-center gap-2 shadow-sm transition-colors">
+                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                        <span id="exportExcelBtnText">Download My Visits (.xlsx)</span>
                     </button>
                     <button id="exportCsvBtn" class="px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl font-medium text-sm flex items-center gap-1.5 shadow-sm transition-colors">
                         <i data-lucide="download" class="w-4 h-4 text-slate-500"></i> CSV
@@ -489,50 +541,61 @@
                 </div>
             </div>
 
-            <!-- Summary KPI Cards -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <!-- Summary KPI Cards (5 Cards: Total, Closed, Followups, Conversion %, Common Accounts) -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                <div class="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex items-center justify-between text-slate-500 mb-1">
-                        <span class="text-xs font-semibold uppercase tracking-wider">Total Visits</span>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider">Total Visits</span>
                         <div class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
                             <i data-lucide="clipboard-check" class="w-4 h-4"></i>
                         </div>
                     </div>
-                    <div id="statTotalVisits" class="text-2xl font-extrabold text-slate-900">0</div>
-                    <p class="text-[11px] text-slate-400 mt-0.5">All recorded visits</p>
+                    <div id="statTotalVisits" class="text-2xl font-black text-slate-900">0</div>
+                    <p id="statTotalVisitsLabel" class="text-[10px] text-slate-400 mt-0.5">Your recorded visits</p>
                 </div>
 
-                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex items-center justify-between text-slate-500 mb-1">
-                        <span class="text-xs font-semibold uppercase tracking-wider">Closed Deals</span>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider">Closed Deals</span>
                         <div class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
                             <i data-lucide="check-circle" class="w-4 h-4"></i>
                         </div>
                     </div>
-                    <div id="statClosedDeals" class="text-2xl font-extrabold text-emerald-600">0</div>
-                    <p class="text-[11px] text-slate-400 mt-0.5">Successful closed</p>
+                    <div id="statClosedDeals" class="text-2xl font-black text-emerald-600">0</div>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Successful closed</p>
                 </div>
 
-                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex items-center justify-between text-slate-500 mb-1">
-                        <span class="text-xs font-semibold uppercase tracking-wider">Follow-ups</span>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider">Follow-ups</span>
                         <div class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                             <i data-lucide="clock" class="w-4 h-4"></i>
                         </div>
                     </div>
-                    <div id="statFollowups" class="text-2xl font-extrabold text-amber-600">0</div>
-                    <p class="text-[11px] text-slate-400 mt-0.5">Pending action</p>
+                    <div id="statFollowups" class="text-2xl font-black text-amber-600">0</div>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Pipeline in progress</p>
                 </div>
 
-                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex items-center justify-between text-slate-500 mb-1">
-                        <span class="text-xs font-semibold uppercase tracking-wider">Active Reps</span>
+                        <span class="text-[11px] font-semibold uppercase tracking-wider">Conversion %</span>
                         <div class="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                            <i data-lucide="users" class="w-4 h-4"></i>
+                            <i data-lucide="trending-up" class="w-4 h-4"></i>
                         </div>
                     </div>
-                    <div id="statActiveReps" class="text-2xl font-extrabold text-indigo-600">0</div>
-                    <p class="text-[11px] text-slate-400 mt-0.5">On the field</p>
+                    <div id="statConversionRate" class="text-2xl font-black text-indigo-600">0%</div>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Closed / Total visits</p>
+                </div>
+
+                <div class="bg-white p-3.5 sm:p-4 rounded-2xl border-2 border-purple-200 shadow-sm bg-purple-50/20 col-span-2 sm:col-span-1">
+                    <div class="flex items-center justify-between text-purple-700 mb-1">
+                        <span class="text-[11px] font-bold uppercase tracking-wider">Common Accounts</span>
+                        <div class="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                            <i data-lucide="layers" class="w-4 h-4"></i>
+                        </div>
+                    </div>
+                    <div id="statCommonAccounts" class="text-2xl font-black text-purple-700">0</div>
+                    <p class="text-[10px] text-purple-600 mt-0.5">Cross-rep client accounts</p>
                 </div>
             </div>
 
@@ -541,8 +604,13 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     
                     <!-- Sales Person Filter -->
-                    <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Filter by Sales Person</label>
+                    <div id="salesRepFilterContainer">
+                        <div class="flex items-center justify-between mb-1">
+                            <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider">Sales Person</label>
+                            <span id="salesRepFilterLockBadge" class="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                                🔒 Locked
+                            </span>
+                        </div>
                         <select id="filterSalesRep" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none">
                             <option value="ALL">All Sales Representatives</option>
                         </select>
@@ -581,6 +649,19 @@
                         </div>
                     </div>
 
+                </div>
+
+                <!-- Common Accounts Filter Toggle Bar -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                    <label class="inline-flex items-center gap-2 text-xs font-bold text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-xl cursor-pointer transition-colors select-none">
+                        <input type="checkbox" id="filterCommonAccountsOnly" class="rounded text-purple-600 focus:ring-purple-500 h-4 w-4">
+                        <span>🏢 Show Common Accounts Only (Shared with Other Reps)</span>
+                    </label>
+
+                    <div id="filterPrivacyNotice" class="text-[11px] text-slate-500 flex items-center gap-1.5">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-600"></i>
+                        <span>Privacy active: Sales reps cannot view other reps' visits or remarks.</span>
+                    </div>
                 </div>
             </div>
 
@@ -734,15 +815,19 @@
     <!-- MOBILE BOTTOM NAVIGATION BAR -->
     <!-- ========================================================================= -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-50 px-2 py-1.5 flex items-center justify-around shadow-lg">
-        <button id="tabBtnNewVisitMob" onclick="window.switchAppTab('new-visit')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-3 text-blue-600 font-medium text-[11px] transition-colors">
+        <button id="tabBtnNewVisitMob" onclick="window.switchAppTab('new-visit')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-blue-600 font-medium text-[11px] transition-colors">
             <i data-lucide="map-pin" class="w-5 h-5 mb-0.5"></i>
             <span>New Visit</span>
         </button>
-        <button id="tabBtnVisitsMob" onclick="window.switchAppTab('visits')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-3 text-slate-400 font-medium text-[11px] transition-colors">
+        <button id="tabBtnVisitsMob" onclick="window.switchAppTab('visits')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-slate-400 font-medium text-[11px] transition-colors">
             <i data-lucide="layout-dashboard" class="w-5 h-5 mb-0.5"></i>
             <span>Dashboard</span>
         </button>
-        <button id="tabBtnSettingsMob" onclick="window.switchAppTab('settings')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-3 text-slate-400 font-medium text-[11px] transition-colors">
+        <button id="tabBtnMisMob" onclick="window.openMisReportModal()" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-slate-400 hover:text-purple-600 font-medium text-[11px] transition-colors">
+            <i data-lucide="bar-chart-3" class="w-5 h-5 mb-0.5 text-purple-600"></i>
+            <span>My MIS</span>
+        </button>
+        <button id="tabBtnSettingsMob" onclick="window.switchAppTab('settings')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-slate-400 font-medium text-[11px] transition-colors">
             <i data-lucide="settings" class="w-5 h-5 mb-0.5"></i>
             <span>Settings</span>
         </button>
@@ -876,7 +961,288 @@
                 <button type="button" id="closeReminderModalBtn" class="w-full py-2 text-slate-500 hover:text-slate-800 font-medium text-xs transition-colors">
                     Done / Close
                 </button>
+    <!-- ========================================================================= -->
+    <!-- MODAL 4: USER PROFILE / LOGIN SWITCHER MODAL -->
+    <!-- ========================================================================= -->
+    <div id="userLoginModal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
+                        <i data-lucide="users-round" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">Switch User / Access Mode</h3>
+                        <p class="text-xs text-slate-500">Select your sales profile or unlock Manager mode</p>
+                    </div>
+                </div>
+                <button type="button" id="closeUserLoginModalBtn" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
             </div>
+
+            <!-- Current Active User Callout -->
+            <div id="modalActiveUserCard" class="p-3.5 bg-blue-50/70 border border-blue-200 rounded-2xl flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div id="modalActiveAvatar" class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-sm shadow-sm">
+                        RS
+                    </div>
+                    <div>
+                        <span class="text-[10px] uppercase font-bold text-blue-600 tracking-wider">Active Session</span>
+                        <h4 id="modalActiveName" class="text-sm font-bold text-slate-900">Rahul Sharma</h4>
+                        <p id="modalActiveRole" class="text-xs text-slate-500">Sales Representative (Private Mode)</p>
+                    </div>
+                </div>
+                <span class="text-[10px] bg-blue-200 text-blue-900 px-2 py-1 rounded-full font-bold">Active</span>
+            </div>
+
+            <!-- Section 1: Sales Representatives List -->
+            <div class="space-y-2">
+                <label class="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Select Sales Representative Profile
+                </label>
+                <div id="loginRepList" class="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- Section 2: Manager / Admin Mode Unlock (with PIN) -->
+            <div class="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2 text-slate-800 font-bold text-xs">
+                        <i data-lucide="shield" class="w-4 h-4 text-purple-600"></i>
+                        <span>Manager / Admin Mode (Full Access)</span>
+                    </div>
+                    <span class="text-[10px] text-purple-700 font-mono font-semibold bg-purple-100 px-2 py-0.5 rounded-full">PIN Protected</span>
+                </div>
+                <p class="text-[11px] text-slate-500">
+                    Unlocks all sales team data, cross-rep analytics, Excel exports, and settings.
+                </p>
+                <div class="flex items-center gap-2">
+                    <input type="password" id="managerPinInput" maxlength="6" placeholder="Enter PIN (Default: 1234)"
+                        class="flex-1 px-3 py-2 text-sm bg-white border border-slate-300 rounded-xl font-mono text-center tracking-widest focus:ring-2 focus:ring-purple-500 outline-none">
+                    <button type="button" id="unlockManagerBtn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors whitespace-nowrap">
+                        Unlock Manager
+                    </button>
+                </div>
+                <div id="managerPinError" class="hidden text-[11px] text-rose-600 font-medium"></div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-100 flex justify-end">
+                <button type="button" id="cancelUserLoginModalBtn" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 5: MANAGER PIN AUTHORIZATION REQUIRED MODAL -->
+    <!-- ========================================================================= -->
+    <div id="managerPinModal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-purple-200 space-y-4 text-center">
+            <div class="w-14 h-14 mx-auto rounded-2xl bg-purple-100 text-purple-700 flex items-center justify-center shadow-inner">
+                <i data-lucide="lock" class="w-7 h-7"></i>
+            </div>
+
+            <div>
+                <h3 class="text-lg font-bold text-slate-900">Manager Access Required</h3>
+                <p class="text-xs text-slate-500 mt-1">
+                    Settings & team management are protected. Enter your 4-digit Manager PIN to continue.
+                </p>
+            </div>
+
+            <div class="space-y-2">
+                <input type="password" id="quickPinInput" maxlength="6" placeholder="Enter PIN (Default: 1234)"
+                    class="w-full px-4 py-3 text-base bg-slate-50 border border-slate-300 rounded-xl font-mono text-center tracking-widest focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none">
+                <div id="quickPinError" class="hidden text-xs text-rose-600 font-semibold"></div>
+            </div>
+
+            <div class="space-y-2">
+                <button type="button" id="submitQuickPinBtn" class="w-full py-2.5 px-4 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm shadow transition-colors">
+                    Verify & Continue
+                </button>
+                <button type="button" id="closeQuickPinBtn" class="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-800">
+                    Cancel
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 6: COMPREHENSIVE MIS REPORT MODAL (PERSONALIZED TO SALES REP) -->
+    <!-- ========================================================================= -->
+    <div id="misReportModal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+        <div class="bg-white rounded-3xl max-w-5xl w-full max-h-[92vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden my-auto">
+            
+            <!-- Modal Header (Rep Info & Print/Download Triggers) -->
+            <div class="p-4 sm:p-5 bg-gradient-to-r from-slate-900 via-indigo-950 to-purple-950 text-white flex items-center justify-between border-b border-slate-800 flex-shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="w-12 h-12 rounded-2xl bg-purple-600/30 border border-purple-400/40 text-purple-300 flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="bar-chart-3" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="text-base sm:text-lg font-black tracking-tight text-white">Sales MIS Performance Report</h3>
+                            <span id="misRepBadge" class="text-[10px] bg-purple-500/30 text-purple-200 border border-purple-400/40 px-2.5 py-0.5 rounded-full font-bold">
+                                Personal Ledger
+                            </span>
+                        </div>
+                        <p id="misRepSubtitle" class="text-xs text-slate-300 mt-0.5">
+                            Sales Rep: <strong id="misRepNameHeader" class="text-white">Rahul Sharma</strong> | <span id="misRepEmpIdHeader">EMP-101</span>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="flex items-center space-x-2">
+                    <button type="button" id="misDownloadExcelBtn" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors" title="Download Multi-sheet MIS Excel">
+                        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">Download MIS (.xlsx)</span>
+                    </button>
+                    <button type="button" id="misPrintPdfBtn" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors" title="Print / Save PDF">
+                        <i data-lucide="printer" class="w-4 h-4"></i>
+                        <span class="hidden sm:inline">Print / PDF</span>
+                    </button>
+                    <button type="button" id="closeMisReportModalBtn" class="p-1.5 text-slate-400 hover:text-white rounded-lg transition-colors">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scrollable Report Body -->
+            <div class="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50/50" id="misPrintArea">
+                
+                <!-- Period Selector Filter Tabs -->
+                <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center space-x-1.5 text-xs text-slate-600 font-semibold">
+                        <i data-lucide="calendar" class="w-4 h-4 text-purple-600"></i>
+                        <span>Reporting Period:</span>
+                    </div>
+                    <div class="flex items-center bg-slate-100 p-1 rounded-xl flex-wrap gap-1 text-xs font-medium" id="misPeriodButtons">
+                        <button type="button" data-period="ALL" class="mis-period-btn px-3 py-1.5 rounded-lg bg-white text-purple-700 font-bold shadow-sm transition-colors">
+                            All Time
+                        </button>
+                        <button type="button" data-period="THIS_MONTH" class="mis-period-btn px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition-colors">
+                            This Month
+                        </button>
+                        <button type="button" data-period="THIS_WEEK" class="mis-period-btn px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition-colors">
+                            Past 7 Days
+                        </button>
+                        <button type="button" data-period="TODAY" class="mis-period-btn px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition-colors">
+                            Today
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Executive Scorecard (KPI Cards) -->
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Client Visits</span>
+                        <div id="misStatTotalVisits" class="text-2xl font-black text-slate-900 mt-1">0</div>
+                        <span class="text-[10px] text-slate-400">Recorded visits</span>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Closed Won</span>
+                        <div id="misStatClosedDeals" class="text-2xl font-black text-emerald-600 mt-1">0</div>
+                        <span class="text-[10px] text-emerald-600/80">Finalized deals</span>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-amber-600">Follow-up Pipeline</span>
+                        <div id="misStatFollowups" class="text-2xl font-black text-amber-600 mt-1">0</div>
+                        <span class="text-[10px] text-amber-600/80">Pending deals</span>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Conversion Rate</span>
+                        <div id="misStatConversionRate" class="text-2xl font-black text-indigo-600 mt-1">0%</div>
+                        <span class="text-[10px] text-indigo-500">Closed / Total %</span>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-2xl border-2 border-purple-200 bg-purple-50/30 shadow-sm col-span-2 sm:col-span-1">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-purple-700">Common Accounts</span>
+                        <div id="misStatCommonAccounts" class="text-2xl font-black text-purple-700 mt-1">0</div>
+                        <span class="text-[10px] text-purple-600">Shared with other reps</span>
+                    </div>
+                </div>
+
+                <!-- Conversion Pipeline Visual Bar -->
+                <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                    <div class="flex items-center justify-between text-xs font-semibold text-slate-700">
+                        <span>Deal Pipeline Distribution</span>
+                        <span id="misPipelineRatioText" class="text-[11px] text-slate-500">0 Closed • 0 Follow-up</span>
+                    </div>
+                    <div class="w-full bg-slate-100 rounded-full h-3 overflow-hidden flex shadow-inner">
+                        <div id="misBarClosed" class="bg-emerald-500 h-3 transition-all duration-500" style="width: 0%" title="Closed Won"></div>
+                        <div id="misBarFollowup" class="bg-amber-400 h-3 transition-all duration-500" style="width: 0%" title="Follow-up"></div>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1">
+                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span> Closed Won (<span id="misPctClosed">0%</span>)</span>
+                        <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Follow-up Pipeline (<span id="misPctFollowup">0%</span>)</span>
+                    </div>
+                </div>
+
+                <!-- Section: Common Business Accounts Overlap -->
+                <div class="bg-white rounded-2xl border border-purple-200 shadow-sm overflow-hidden">
+                    <div class="p-3.5 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100 flex items-center justify-between">
+                        <div class="flex items-center space-x-2 text-purple-950 font-bold text-xs sm:text-sm">
+                            <i data-lucide="layers" class="w-4 h-4 text-purple-600"></i>
+                            <span>Common Accounts Overlap (Shared Across Sales Reps)</span>
+                        </div>
+                        <span id="misCommonBadge" class="text-[10px] bg-purple-200 text-purple-900 font-extrabold px-2 py-0.5 rounded-full">
+                            0 Common Accounts
+                        </span>
+                    </div>
+                    <div id="misCommonAccountsContainer" class="p-3 divide-y divide-purple-100">
+                        <!-- Populated dynamically via JS -->
+                    </div>
+                </div>
+
+                <!-- Section: Detailed Visit Activity Ledger -->
+                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-3 p-4">
+                    <div class="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <h4 class="text-sm font-bold text-slate-900 flex items-center gap-2">
+                            <i data-lucide="file-text" class="w-4 h-4 text-blue-600"></i>
+                            Visit Activity Breakdown & Ledger
+                        </h4>
+                        <span id="misLedgerCount" class="text-xs text-slate-500">0 visits listed</span>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-600 uppercase font-bold text-[10px] border-b border-slate-200">
+                                    <th class="p-2.5">Date & Time</th>
+                                    <th class="p-2.5">Business Name</th>
+                                    <th class="p-2.5">Contact Person</th>
+                                    <th class="p-2.5">Status</th>
+                                    <th class="p-2.5">Address Option A & B (GPS)</th>
+                                    <th class="p-2.5">Next Follow-up</th>
+                                    <th class="p-2.5">Remarks</th>
+                                </tr>
+                            </thead>
+                            <tbody id="misVisitTableBody" class="divide-y divide-slate-100">
+                                <!-- Populated dynamically via JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-4 bg-white border-t border-slate-200 flex items-center justify-between flex-shrink-0">
+                <div class="text-xs text-slate-400">
+                    Confidential Sales MIS • Field Sales ERP
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button type="button" id="closeMisReportBottomBtn" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs transition-colors">
+                        Close
+                    </button>
+                </div>
+            </div>
+
         </div>
     </div>
 

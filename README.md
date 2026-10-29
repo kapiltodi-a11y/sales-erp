@@ -33,7 +33,55 @@ A modern, responsive field sales ERP web application designed for mobile sales t
   - 1-click **Add to Google Calendar**: Direct web calendar event creation.
 - **Detailed Remarks**: Discussion notes, pricing quotes, client requirements, and action items.
 
-### 2. Admin & Manager Software (Visits Dashboard)
+### 2. Sales Rep Data Privacy & Role-Based Access Control
+- **Representative Data Isolation**:
+  - One sales representative **CANNOT** view another sales representative's visits, remarks, client phone numbers, or private notes.
+  - The dashboard automatically filters strictly to the logged-in sales representative.
+  - Sales representative filter is locked in rep mode with a clear privacy indicator.
+- **Header Profile Switcher**:
+  - 1-tap switcher allows testing or toggling between different sales representative profiles.
+- **PIN-Protected Manager / Admin Mode**:
+  - Unlocked via 4-digit PIN (default: `1234`).
+  - Allows sales leadership and managers to view all reps, filter across all visits, access Settings, and download company-wide Excel reports.
+
+### 3. Common Business / Company Name Highlighting
+- **Cross-Rep Shared Accounts**:
+  - Automatically detects when a business/company name has been visited or is handled by multiple sales representatives in the team.
+- **Visual Highlighting on Dashboard**:
+  - Every visit belonging to a common account receives a prominent glowing purple highlight border (`border-2 border-purple-400 bg-purple-50/20`), an account badge, and a callout showing which other sales reps also visited this client.
+- **Quick Filter Toggle**:
+  - Filter bar includes `[ ] 🏢 Show Common Accounts Only` to isolate cross-rep client accounts with a single click.
+- **Form-Level Awareness**:
+  - Entering or scanning a company name that other sales reps handle highlights the account as a Common Account while preventing accidental duplicate records by the same rep.
+
+### 4. Personal Data Download & In-App MIS Reports
+- **Personal Visit Data Download**:
+  - Each sales representative can download **their own data** in Excel (`.xlsx`) or CSV format containing only their visits.
+  - Filename dynamically generated as `My_Sales_Visits_[RepName]_[Date].xlsx`.
+- **Management Information System (MIS) Report**:
+  - Direct 1-tap access on Desktop navigation, Mobile bottom bar, and Dashboard (`📊 My MIS Report`).
+  - **Period Selectors**: All Time, This Month, Past 7 Days, or Today.
+  - **Executive Performance Scorecard**:
+    - Total Client Visits Completed
+    - Deals Successfully Closed (Won)
+    - Follow-up Pipeline in Progress
+    - Conversion Efficiency Rate % (`Closed / Total * 100`)
+    - Common Accounts Count
+  - **Visual Deal Pipeline Progress Bar**:
+    - Graphical breakdown of Closed Won % vs Follow-up Pipeline %.
+  - **Common Accounts Overlap Table**:
+    - Complete summary of shared corporate clients and cross-rep overlap.
+  - **Tabular Visit Activity Ledger**:
+    - Formatted table of all visits in the selected period with Option A & Option B (tamper-proof GPS) addresses and 11:30 AM follow-up dates.
+  - **1-Click Download MIS (.xlsx)**:
+    - Generates a multi-sheet formatted Excel workbook with SheetJS:
+      1. `MIS Performance Scorecard`
+      2. `Visit Activity Ledger`
+      3. `Common Accounts Overlap`
+  - **Print / Save as PDF**:
+    - Optimized print layout for sending directly to printers or exporting to PDF.
+
+### 5. Admin & Manager Software (Visits Dashboard)
 - **Today's Follow-up Reminders (11:30 AM) Alert Banner**:
   - Automatically highlights all clients scheduled for follow-up today at 11:30 AM.
   - 1-tap **Call** (`tel:`), **WhatsApp** (`wa.me`), and **Alarm Sync** buttons.
