@@ -79,9 +79,18 @@
                 <button id="tabBtnSettingsDesk" onclick="window.switchAppTab('settings')" class="tab-btn px-3.5 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 flex items-center gap-2">
                     <i data-lucide="settings" class="w-4 h-4"></i> Settings
                 </button>
+                <button id="tabBtnAdminDesk" onclick="window.openAdminAccessPanel()" class="tab-btn px-3.5 py-2 rounded-lg text-sm font-bold transition-colors text-purple-700 hover:text-purple-900 hover:bg-purple-100/70 flex items-center gap-1.5" title="Open Admin Control Panel">
+                    <i data-lucide="shield-check" class="w-4 h-4 text-purple-600"></i> Admin Panel
+                </button>
             </nav>
 
             <div class="flex items-center space-x-2">
+                <!-- Dedicated Admin Panel Header Button -->
+                <button id="headerAdminPanelBtn" onclick="window.openAdminAccessPanel()" class="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all" title="Access Admin Control Panel (PIN: 1234)">
+                    <i data-lucide="shield-check" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Admin Panel</span>
+                </button>
+
                 <!-- Active User Session Switcher Pill -->
                 <button id="activeUserPillBtn" onclick="window.openUserLoginModal()" class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors shadow-sm group" title="Switch User / Manager Mode">
                     <div id="activeUserAvatar" class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
@@ -707,14 +716,19 @@
         <!-- ========================================================================= -->
         <section id="viewSettings" class="hidden max-w-4xl mx-auto space-y-6">
             
-            <div class="flex items-center justify-between">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h2 class="text-2xl font-bold text-slate-900">Settings & Team Management</h2>
                     <p class="text-sm text-slate-500">Add or delete sales team members and configure Supabase cloud database</p>
                 </div>
-                <button id="openAddMemberModalBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-sm transition-colors">
-                    <i data-lucide="user-plus" class="w-4 h-4"></i> Add Sales Person
-                </button>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="window.openAdminAccessPanel()" class="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors" title="Open Full Admin Panel">
+                        <i data-lucide="shield-check" class="w-4 h-4"></i> Admin Panel
+                    </button>
+                    <button id="openAddMemberModalBtn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold flex items-center gap-2 shadow-sm transition-colors">
+                        <i data-lucide="user-plus" class="w-4 h-4"></i> Add Sales Person
+                    </button>
+                </div>
             </div>
 
             <!-- Sales Team Members List Card -->
@@ -846,21 +860,25 @@
     <!-- MOBILE BOTTOM NAVIGATION BAR -->
     <!-- ========================================================================= -->
     <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-50 px-2 py-1.5 flex items-center justify-around shadow-lg">
-        <button id="tabBtnNewVisitMob" onclick="window.switchAppTab('new-visit')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-blue-600 font-medium text-[11px] transition-colors">
+        <button id="tabBtnNewVisitMob" onclick="window.switchAppTab('new-visit')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-1.5 text-blue-600 font-medium text-[11px] transition-colors">
             <i data-lucide="map-pin" class="w-5 h-5 mb-0.5"></i>
             <span>New Visit</span>
         </button>
-        <button id="tabBtnVisitsMob" onclick="window.switchAppTab('visits')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-slate-400 font-medium text-[11px] transition-colors">
+        <button id="tabBtnVisitsMob" onclick="window.switchAppTab('visits')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-1.5 text-slate-400 font-medium text-[11px] transition-colors">
             <i data-lucide="layout-dashboard" class="w-5 h-5 mb-0.5"></i>
             <span>Dashboard</span>
         </button>
-        <button id="tabBtnMisMob" onclick="window.openMisReportModal()" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-slate-400 hover:text-purple-600 font-medium text-[11px] transition-colors">
+        <button id="tabBtnMisMob" onclick="window.openMisReportModal()" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-1.5 text-slate-400 hover:text-purple-600 font-medium text-[11px] transition-colors">
             <i data-lucide="bar-chart-3" class="w-5 h-5 mb-0.5 text-purple-600"></i>
             <span>My MIS</span>
         </button>
-        <button id="tabBtnSettingsMob" onclick="window.switchAppTab('settings')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-2.5 text-slate-400 font-medium text-[11px] transition-colors">
+        <button id="tabBtnSettingsMob" onclick="window.switchAppTab('settings')" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-1.5 text-slate-400 font-medium text-[11px] transition-colors">
             <i data-lucide="settings" class="w-5 h-5 mb-0.5"></i>
             <span>Settings</span>
+        </button>
+        <button id="tabBtnAdminMob" onclick="window.openAdminAccessPanel()" class="mob-tab-btn flex flex-col items-center justify-center py-1 px-1.5 text-purple-700 hover:text-purple-900 font-bold text-[11px] transition-colors" title="Admin Panel">
+            <i data-lucide="shield-check" class="w-5 h-5 mb-0.5 text-purple-700"></i>
+            <span>Admin</span>
         </button>
     </nav>
 
@@ -1143,8 +1161,9 @@
                 <div class="flex items-center gap-2">
                     <input type="password" id="managerPinInput" maxlength="6" placeholder="Enter PIN (Default: 1234)"
                         class="flex-1 px-3 py-2 text-sm bg-white border border-slate-300 rounded-xl font-mono text-center tracking-widest focus:ring-2 focus:ring-purple-500 outline-none">
-                    <button type="button" id="unlockManagerBtn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors whitespace-nowrap">
-                        Unlock Manager
+                    <button type="button" id="unlockManagerBtn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors whitespace-nowrap flex items-center gap-1.5">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                        <span>Unlock Admin Panel</span>
                     </button>
                 </div>
                 <div id="managerPinError" class="hidden text-[11px] text-rose-600 font-medium"></div>
@@ -1363,6 +1382,397 @@
                         Close
                     </button>
                 </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 7: EXECUTIVE MASTER ADMIN PANEL -->
+    <!-- ========================================================================= -->
+    <div id="adminAccessPanelModal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-3 sm:p-5">
+        <div class="bg-white rounded-3xl max-w-4xl w-full max-h-[92vh] shadow-2xl border border-purple-200 flex flex-col overflow-hidden">
+            
+            <!-- Modal Header (Gradient Banner) -->
+            <div class="bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 p-4 sm:p-5 text-white flex items-center justify-between flex-shrink-0">
+                <div class="flex items-center space-x-3">
+                    <div class="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur text-white flex items-center justify-center shadow-inner shrink-0">
+                        <i data-lucide="shield-check" class="w-6 h-6 text-amber-300"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h3 class="text-lg sm:text-xl font-extrabold tracking-tight">Admin Control Panel</h3>
+                            <span class="text-[11px] bg-amber-400 text-purple-950 font-bold px-2.5 py-0.5 rounded-full shadow-sm">👑 Full Executive Access</span>
+                        </div>
+                        <p class="text-xs text-purple-200 mt-0.5">Central management of sales team, Sr. Rep controls, cloud database & company Excel exports</p>
+                    </div>
+                </div>
+                <button type="button" id="closeAdminAccessPanelModalBtn" class="text-purple-200 hover:text-white p-2 rounded-xl hover:bg-white/10 transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Sub-Navigation Pills -->
+            <div class="bg-purple-50/70 border-b border-purple-100 px-4 py-2 flex items-center gap-1.5 overflow-x-auto flex-shrink-0">
+                <button type="button" id="adminPillOverview" onclick="window.adminSwitchTab('overview')" class="admin-pill px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-purple-700 text-white shadow-sm flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Overview & Actions
+                </button>
+                <button type="button" id="adminPillTeam" onclick="window.adminSwitchTab('team')" class="admin-pill px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-purple-900 hover:bg-purple-100 flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="users" class="w-3.5 h-3.5"></i> Team & Sr. Rep Hub
+                </button>
+                <button type="button" id="adminPillDatabase" onclick="window.adminSwitchTab('database')" class="admin-pill px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-purple-900 hover:bg-purple-100 flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="database" class="w-3.5 h-3.5"></i> Cloud Database Sync
+                </button>
+                <button type="button" id="adminPillSecurity" onclick="window.adminSwitchTab('security')" class="admin-pill px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-purple-900 hover:bg-purple-100 flex items-center gap-1.5 shrink-0">
+                    <i data-lucide="lock" class="w-3.5 h-3.5"></i> Security & PIN
+                </button>
+            </div>
+
+            <!-- Modal Scrollable Content -->
+            <div class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+
+                <!-- SECTION 1: OVERVIEW & ACTIONS -->
+                <div id="adminSecOverview" class="space-y-6">
+                    
+                    <!-- KPI Cards Grid -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                        <!-- KPI 1: Company Visits -->
+                        <div class="p-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] uppercase font-bold text-emerald-700 tracking-wider">Company Visits</span>
+                                <div class="w-7 h-7 rounded-lg bg-emerald-200 text-emerald-800 flex items-center justify-center">
+                                    <i data-lucide="map-pin" class="w-4 h-4"></i>
+                                </div>
+                            </div>
+                            <div>
+                                <span id="adminStatTotalVisits" class="text-2xl font-black text-emerald-950">0</span>
+                                <span class="text-xs text-emerald-700 font-medium ml-1">Total Logged</span>
+                            </div>
+                            <button type="button" onclick="window.adminExportAllExcel()" class="w-full mt-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors flex items-center justify-center gap-1">
+                                <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i> Export Excel (.xlsx)
+                            </button>
+                        </div>
+
+                        <!-- KPI 2: Sr. Sales Rep Control -->
+                        <div class="p-4 rounded-2xl bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-200 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] uppercase font-bold text-purple-700 tracking-wider">Sr. Sales Rep</span>
+                                <div class="w-7 h-7 rounded-lg bg-purple-200 text-purple-800 flex items-center justify-center">
+                                    <i data-lucide="award" class="w-4 h-4"></i>
+                                </div>
+                            </div>
+                            <div>
+                                <span id="adminStatSrRepName" class="text-base font-black text-purple-950 block truncate">Vikram Malhotra</span>
+                                <span class="text-[10px] text-purple-700 font-bold bg-purple-100 px-1.5 py-0.5 rounded">All Functions Access</span>
+                            </div>
+                            <button type="button" onclick="window.adminQuickEditSrRep()" class="w-full mt-1 px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors flex items-center justify-center gap-1" title="Edit Sr. Sales Rep Name & Details">
+                                <i data-lucide="pencil" class="w-3.5 h-3.5"></i> Edit Sr. Rep Name
+                            </button>
+                        </div>
+
+                        <!-- KPI 3: Sales Team Directory -->
+                        <div class="p-4 rounded-2xl bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] uppercase font-bold text-blue-700 tracking-wider">Sales Team</span>
+                                <div class="w-7 h-7 rounded-lg bg-blue-200 text-blue-800 flex items-center justify-center">
+                                    <i data-lucide="users" class="w-4 h-4"></i>
+                                </div>
+                            </div>
+                            <div>
+                                <span id="adminStatTeamCount" class="text-2xl font-black text-blue-950">0</span>
+                                <span class="text-xs text-blue-700 font-medium ml-1">Team Members</span>
+                            </div>
+                            <button type="button" onclick="window.openAddMemberModal()" class="w-full mt-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors flex items-center justify-center gap-1">
+                                <i data-lucide="user-plus" class="w-3.5 h-3.5"></i> Add Sales Rep
+                            </button>
+                        </div>
+
+                        <!-- KPI 4: Database Status -->
+                        <div class="p-4 rounded-2xl bg-gradient-to-br from-slate-50 to-amber-50 border border-slate-200 space-y-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] uppercase font-bold text-slate-700 tracking-wider">Cloud Database</span>
+                                <div class="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center">
+                                    <i data-lucide="database" class="w-4 h-4"></i>
+                                </div>
+                            </div>
+                            <div>
+                                <span id="adminStatSupabaseStatus" class="text-xs font-black text-slate-900 block truncate">Demo (LocalStorage)</span>
+                                <span class="text-[10px] text-slate-500 font-medium">PostgreSQL Ready</span>
+                            </div>
+                            <button type="button" onclick="window.adminSwitchTab('database')" class="w-full mt-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-900 text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors flex items-center justify-center gap-1">
+                                <i data-lucide="settings-2" class="w-3.5 h-3.5"></i> Config Supabase
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Executive Action Center -->
+                    <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                                <i data-lucide="sparkles" class="w-4 h-4 text-purple-600"></i> Executive Quick Actions
+                            </h4>
+                            <span class="text-[11px] text-slate-500">1-Click Admin Operations</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                            <button type="button" onclick="window.adminExportAllExcel()" class="p-3 bg-white hover:bg-emerald-50/60 border border-slate-200 hover:border-emerald-300 rounded-xl text-left transition-colors flex items-center gap-3 group shadow-xs">
+                                <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                                    <i data-lucide="download" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-bold text-slate-900">Download All Visits Excel</h5>
+                                    <p class="text-[10px] text-slate-500">Full workbook with all sales reps (.xlsx)</p>
+                                </div>
+                            </button>
+
+                            <button type="button" onclick="window.openMisReportModal('ALL')" class="p-3 bg-white hover:bg-purple-50/60 border border-slate-200 hover:border-purple-300 rounded-xl text-left transition-colors flex items-center gap-3 group shadow-xs">
+                                <div class="w-9 h-9 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                                    <i data-lucide="bar-chart-3" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-bold text-slate-900">Executive MIS Report</h5>
+                                    <p class="text-[10px] text-slate-500">Performance, conversion & client accounts</p>
+                                </div>
+                            </button>
+
+                            <button type="button" onclick="window.adminQuickEditSrRep()" class="p-3 bg-white hover:bg-indigo-50/60 border border-slate-200 hover:border-indigo-300 rounded-xl text-left transition-colors flex items-center gap-3 group shadow-xs">
+                                <div class="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                                    <i data-lucide="edit-3" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-bold text-slate-900">Edit Sr. Sales Rep Name</h5>
+                                    <p class="text-[10px] text-slate-500">Modify senior representative credentials</p>
+                                </div>
+                            </button>
+
+                            <button type="button" onclick="window.openAddMemberModal()" class="p-3 bg-white hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-xl text-left transition-colors flex items-center gap-3 group shadow-xs">
+                                <div class="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                                    <i data-lucide="user-plus" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-bold text-slate-900">Add Field Sales Rep</h5>
+                                    <p class="text-[10px] text-slate-500">Onboard new field sales representatives</p>
+                                </div>
+                            </button>
+
+                            <button type="button" onclick="window.adminSwitchTab('database')" class="p-3 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl text-left transition-colors flex items-center gap-3 group shadow-xs">
+                                <div class="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                                    <i data-lucide="database" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-bold text-slate-900">Supabase Cloud Sync</h5>
+                                    <p class="text-[10px] text-slate-500">PostgreSQL tables & cloud storage</p>
+                                </div>
+                            </button>
+
+                            <button type="button" onclick="window.adminSwitchTab('security')" class="p-3 bg-white hover:bg-amber-50/60 border border-slate-200 hover:border-amber-300 rounded-xl text-left transition-colors flex items-center gap-3 group shadow-xs">
+                                <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center group-hover:scale-105 transition-transform shrink-0">
+                                    <i data-lucide="key" class="w-4 h-4"></i>
+                                </div>
+                                <div>
+                                    <h5 class="text-xs font-bold text-slate-900">Change Admin PIN</h5>
+                                    <p class="text-[10px] text-slate-500">Default: 1234 • Update security code</p>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- SECTION 2: TEAM & SR. REP HUB -->
+                <div id="adminSecTeam" class="hidden space-y-5">
+                    
+                    <!-- Dedicated Sr. Sales Rep Highlight Card -->
+                    <div class="p-5 bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 rounded-2xl border-2 border-purple-300 shadow-sm space-y-3">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div class="flex items-center space-x-3">
+                                <div class="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center font-black text-lg shadow-md shadow-purple-500/20 shrink-0">
+                                    ⭐
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <h4 id="adminSrRepCardName" class="text-base font-extrabold text-purple-950">Vikram Malhotra</h4>
+                                        <span class="text-[10px] bg-purple-200 text-purple-900 font-bold px-2.5 py-0.5 rounded-full">Sr. Sales Representative</span>
+                                    </div>
+                                    <p class="text-xs text-purple-700 mt-0.5">
+                                        Designation: <span id="adminSrRepCardRole" class="font-semibold text-purple-900">Senior Field Account Director</span> • 
+                                        ID: <span id="adminSrRepCardEmpId" class="font-mono font-bold text-purple-900">SR-00</span>
+                                    </p>
+                                </div>
+                            </div>
+                            <button type="button" onclick="window.adminQuickEditSrRep()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center gap-1.5 shrink-0 self-start sm:self-auto">
+                                <i data-lucide="pencil" class="w-4 h-4"></i> Edit Sr. Sales Rep Name & Details
+                            </button>
+                        </div>
+
+                        <div class="p-3 bg-white/80 rounded-xl border border-purple-200/80 text-xs text-purple-900 space-y-1">
+                            <div class="font-bold flex items-center gap-1.5 text-purple-950">
+                                <i data-lucide="shield-alert" class="w-4 h-4 text-purple-700"></i> Role & Permissions Rule:
+                            </div>
+                            <p class="text-[11px] text-purple-800">
+                                • The <strong>Sr. Sales Rep</strong> has access to all visits, MIS analytics, and can add or delete regular Sales Reps.<br>
+                                • Regular Sales Reps <strong>cannot</strong> access Settings or see other reps' visits.<br>
+                                • <strong>Only the Admin</strong> has permission to edit the Sr. Sales Rep's name, role, or credentials.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Full Sales Team Directory -->
+                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-0">
+                        <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+                            <div>
+                                <h4 class="text-sm font-bold text-slate-900">All Sales Representatives Directory</h4>
+                                <p class="text-xs text-slate-500">Edit member names, designations, contact information or remove members</p>
+                            </div>
+                            <button type="button" onclick="window.openAddMemberModal()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center gap-1.5">
+                                <i data-lucide="user-plus" class="w-3.5 h-3.5"></i> Add Member
+                            </button>
+                        </div>
+
+                        <!-- Table Headers -->
+                        <div class="hidden sm:grid sm:grid-cols-12 px-4 py-2.5 bg-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                            <div class="sm:col-span-4">Team Member & ID</div>
+                            <div class="sm:col-span-3">Role / Designation</div>
+                            <div class="sm:col-span-3">Contact Details</div>
+                            <div class="sm:col-span-2 text-right">Admin Actions</div>
+                        </div>
+
+                        <div id="adminTeamMembersList" class="divide-y divide-slate-100">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- SECTION 3: CLOUD DATABASE SYNC -->
+                <div id="adminSecDatabase" class="hidden space-y-5">
+                    
+                    <div class="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between gap-3">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                                <i data-lucide="database" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-emerald-950">Supabase Cloud Database Synchronization</h4>
+                                <p class="text-xs text-emerald-800">Store visits, GPS tracks & photos permanently in the cloud with multi-device sync</p>
+                            </div>
+                        </div>
+                        <span id="adminDbStatusBadge" class="text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                            Demo Mode
+                        </span>
+                    </div>
+
+                    <form id="adminSupabaseForm" class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <div>
+                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1" for="adminDbUrlInput">
+                                Supabase Project URL *
+                            </label>
+                            <input type="url" id="adminDbUrlInput" placeholder="https://yourproject.supabase.co"
+                                class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1" for="adminDbKeyInput">
+                                Supabase Anon Public API Key *
+                            </label>
+                            <input type="password" id="adminDbKeyInput" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                                class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none">
+                        </div>
+
+                        <div id="adminDbAlert" class="hidden p-3 rounded-xl text-xs font-medium"></div>
+
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                            <div class="flex items-center gap-2">
+                                <button type="button" onclick="window.adminDisconnectSupabase()" class="text-xs text-rose-600 hover:text-rose-800 font-semibold hover:underline">
+                                    Disconnect & Return to Local Demo Mode
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <button type="button" id="adminCopySqlBtn" onclick="window.adminCopySqlSchema()" class="px-3.5 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors flex items-center gap-1.5">
+                                    <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy SQL Schema
+                                </button>
+                                <button type="submit" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors flex items-center gap-1.5">
+                                    <i data-lucide="check-circle" class="w-4 h-4"></i> Save & Test Connection
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                </div>
+
+                <!-- SECTION 4: SECURITY & PIN -->
+                <div id="adminSecSecurity" class="hidden space-y-5">
+                    
+                    <!-- Admin PIN Card -->
+                    <div class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-4">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
+                                <i data-lucide="key-round" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-slate-900">Admin Master PIN Security</h4>
+                                <p class="text-xs text-slate-500">Protect Admin Panel, database credentials, and team modifications with a secure PIN</p>
+                            </div>
+                        </div>
+
+                        <div class="p-3.5 bg-purple-50/60 rounded-xl border border-purple-200 text-xs text-purple-900 flex items-center justify-between">
+                            <div>
+                                <strong>Default Master PIN:</strong> <code class="font-mono bg-purple-200 text-purple-950 px-2 py-0.5 rounded font-bold">1234</code>
+                            </div>
+                            <span class="text-[11px] text-purple-700">Stored securely on this device</span>
+                        </div>
+
+                        <form id="adminChangePinForm" class="space-y-3">
+                            <div>
+                                <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1" for="newAdminPinInput">
+                                    Set New Admin PIN (4 to 6 Digits)
+                                </label>
+                                <div class="flex items-center gap-2">
+                                    <input type="password" id="newAdminPinInput" maxlength="6" placeholder="Enter new PIN (e.g. 5678)"
+                                        class="flex-1 px-3.5 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl font-mono text-center tracking-widest focus:bg-white focus:ring-2 focus:ring-purple-500 outline-none">
+                                    <button type="submit" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors whitespace-nowrap flex items-center gap-1.5">
+                                        <i data-lucide="lock" class="w-3.5 h-3.5"></i> Save New PIN
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="adminPinUpdateMsg" class="hidden text-xs font-semibold p-2.5 rounded-xl"></div>
+                        </form>
+                    </div>
+
+                    <!-- Persona Switcher / Preview Field Mode -->
+                    <div class="p-5 bg-white rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                                <i data-lucide="eye" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-sm font-bold text-slate-900">Preview App as Field Sales Rep</h4>
+                                <p class="text-xs text-slate-500">Test how the application behaves for a specific sales representative (privacy & permissions test)</p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <select id="adminPersonaRepSelect" class="flex-1 px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl font-medium focus:ring-2 focus:ring-blue-500 outline-none">
+                                <!-- Populated dynamically with reps -->
+                            </select>
+                            <button type="button" onclick="window.adminSwitchToSelectedRep()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-colors whitespace-nowrap flex items-center gap-1.5">
+                                <i data-lucide="arrow-right-circle" class="w-4 h-4"></i> Test as Rep
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between flex-shrink-0">
+                <div class="text-xs text-slate-500 flex items-center gap-1.5">
+                    <i data-lucide="shield-check" class="w-4 h-4 text-purple-600"></i>
+                    <span>Executive Admin Panel • Session Active</span>
+                </div>
+                <button type="button" id="closeAdminAccessPanelBottomBtn" class="px-5 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold rounded-xl text-xs transition-colors">
+                    Close Admin Panel
+                </button>
             </div>
 
         </div>

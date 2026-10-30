@@ -111,13 +111,23 @@ A modern, responsive field sales ERP web application designed for mobile sales t
     - **Can Add Sales Reps**: Can create new field Sales Representatives.
     - **Can Delete Sales Reps**: Can remove regular Sales Reps. Cannot delete another Sr. Sales Rep (protected status).
     - **Database Security**: Supabase cloud credentials and connection configuration are locked to Admin mode to prevent unauthorized database changes.
-- **3. Manager / Admin Mode (`👑 Admin Mode`)**:
-  - Unlocked via PIN (default: `1234`).
-  - Full system control, including adding/deleting Sr. Sales Reps and modifying Supabase cloud database keys.
+### 6. Executive Admin Panel (`👑 Admin Panel`)
+- **Direct 1-Click Access**:
+  - Prominent **Admin Panel** button located in the desktop header navigation bar, mobile bottom bar, settings header, and user login switcher.
+  - If currently in Sales Rep or Sr. Sales Rep mode, prompts for the 4-digit Admin PIN (default: `1234`), elevating the session upon verification and directly launching the Admin Control Center.
+- **Executive Operations Center**:
+  - **KPI Scorecards**: Instant metrics on total company visits, Sr. Sales Rep status, total sales representatives, and cloud database connectivity.
+  - **Sr. Sales Rep Hub**: Dedicated high-visibility control card to view and edit the Sr. Sales Rep's name, designation, and credentials with instant sync across active sessions and past visit records.
+  - **Sales Team Directory**: Full team management to onboard new field reps, edit profiles, or safely delete reps.
+  - **1-Click Master Data Export**: Download complete company-wide Excel workbook (`.xlsx`) containing all sales representatives and field data.
+  - **Cloud Database Configuration**: Quick-entry Supabase Project URL and Anon API key tester with live status badges.
+  - **Security & PIN Manager**: Allows updating the master Admin PIN from the default `1234` to any custom 4-6 digit code, stored securely in local storage.
+  - **Sales Rep Persona Previewer**: Allows the administrator to instantly test and preview the application from any sales representative's viewpoint to verify rep privacy and field workflows.
 
-### 6. Settings & Sales Team Management
+### 7. Settings & Sales Team Management
 - **Role / Type Column**: Clear visual distinction between `⭐ Sr. Sales Rep` and `👤 Sales Rep`.
 - **Add Team Members**: Role selector allows assigning `Sales Rep` or `Sr. Sales Rep`.
+- **Admin Edit Control**: Admin can edit the name and credentials of the Sr. Sales Rep and any team member.
 - **Safe Deletion**: Deletion permissions enforced in real-time according to role.
 - **Supabase Cloud Sync**:
   - Input your Supabase Project URL and Anon Public Key.

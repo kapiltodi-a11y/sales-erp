@@ -1469,7 +1469,25 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // 7. APPLICATION STATE & USER SESSION MANAGEMENT
     // --------------------------------------------------------------------------
     const USER_SESSION_STORAGE_KEY = 'sales_erp_active_user_session';
+    const ADMIN_PIN_STORAGE_KEY = 'sales_erp_admin_pin';
     const DEFAULT_MANAGER_PIN = '1234';
+
+    function getAdminPin() {
+        try {
+            return localStorage.getItem(ADMIN_PIN_STORAGE_KEY) || DEFAULT_MANAGER_PIN;
+        } catch (e) {
+            return DEFAULT_MANAGER_PIN;
+        }
+    }
+
+    function setAdminPin(newPin) {
+        try {
+            localStorage.setItem(ADMIN_PIN_STORAGE_KEY, newPin);
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
 
     // Role helper predicates
     function isSalesRep(u) {
@@ -1639,6 +1657,28 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
         }
 
+        // 3B. ADMIN PANEL BUTTONS & ACTIVE INDICATORS
+        const headerAdminPanelBtn = document.getElementById('headerAdminPanelBtn');
+        const tabBtnAdminDesk = document.getElementById('tabBtnAdminDesk');
+
+        if (isAdmin) {
+            if (headerAdminPanelBtn) {
+                headerAdminPanelBtn.className = 'px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm ring-2 ring-purple-300 transition-all';
+                headerAdminPanelBtn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4 text-amber-300"></i><span class="hidden sm:inline">Admin Panel</span><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>`;
+            }
+            if (tabBtnAdminDesk) {
+                tabBtnAdminDesk.classList.add('bg-purple-100', 'text-purple-900');
+            }
+        } else {
+            if (headerAdminPanelBtn) {
+                headerAdminPanelBtn.className = 'px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all';
+                headerAdminPanelBtn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i><span class="hidden sm:inline">Admin Panel</span>`;
+            }
+            if (tabBtnAdminDesk) {
+                tabBtnAdminDesk.classList.remove('bg-purple-100', 'text-purple-900');
+            }
+        }
+
         // 4. DASHBOARD TITLES & PRIVACY MODE
         const dTitle = document.getElementById('dashboardViewTitle');
         const dSub = document.getElementById('dashboardViewSubtitle');
@@ -1723,7 +1763,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         unlockBtn?.addEventListener('click', () => {
             const enteredPin = (pinInput?.value || '').trim();
-            if (enteredPin === DEFAULT_MANAGER_PIN) {
+            if (enteredPin === getAdminPin()) {
                 pinError?.classList.add('hidden');
                 pinInput.value = '';
                 saveUserSession({
@@ -1737,10 +1777,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 });
                 closeModal();
                 loadAndRenderVisits();
-                alert('🛡️ Manager / Admin Mode Unlocked! You now have full access to view all sales reps, visits, downloads, database settings, and team management.');
+                openAdminAccessPanel();
             } else {
                 if (pinError) {
-                    pinError.textContent = 'Invalid Manager PIN. Default PIN is 1234.';
+                    pinError.textContent = `Invalid Admin PIN. (Default: ${DEFAULT_MANAGER_PIN})`;
                     pinError.classList.remove('hidden');
                 }
             }
@@ -1883,11 +1923,12 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         submitBtn?.addEventListener('click', () => {
             const val = (pinInput?.value || '').trim();
-            if (val === DEFAULT_MANAGER_PIN) {
+            if (val === getAdminPin()) {
                 pinError?.classList.add('hidden');
                 closeModal();
                 saveUserSession({
                     role: 'manager',
+                    role_type: 'manager',
                     id: 'admin',
                     name: 'Manager / Admin',
                     employee_id: 'MGR-01',
@@ -1901,7 +1942,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 }
             } else {
                 if (pinError) {
-                    pinError.textContent = 'Incorrect PIN. Default is 1234.';
+                    pinError.textContent = `Incorrect PIN. Default is ${DEFAULT_MANAGER_PIN}.`;
                     pinError.classList.remove('hidden');
                 }
             }
@@ -3977,6 +4018,360 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     // --------------------------------------------------------------------------
+    // EXECUTIVE MASTER ADMIN PANEL CONTROLLER & LOGIC
+    // --------------------------------------------------------------------------
+    window.openAdminAccessPanel = function() {
+        if (isManagerOrAdmin()) {
+            showAdminAccessPanelModal();
+        } else {
+            promptManagerPin(() => {
+                updateUserSessionUI();
+                showAdminAccessPanelModal();
+            }, 'Admin Panel Authorization', 'Enter your 4-digit Admin PIN to open the Admin Control Center (Default: 1234).');
+        }
+    };
+
+    function showAdminAccessPanelModal() {
+        const modal = document.getElementById('adminAccessPanelModal');
+        if (!modal) return;
+
+        renderAdminPanelData();
+        modal.classList.remove('hidden');
+        initLucideIcons();
+    }
+
+    window.closeAdminAccessPanel = function() {
+        const modal = document.getElementById('adminAccessPanelModal');
+        modal?.classList.add('hidden');
+    };
+
+    window.adminSwitchTab = function(tabName) {
+        const tabs = ['overview', 'team', 'database', 'security'];
+        tabs.forEach(t => {
+            const cap = t.charAt(0).toUpperCase() + t.slice(1);
+            const sec = document.getElementById('adminSec' + cap);
+            const pill = document.getElementById('adminPill' + cap);
+            if (sec) {
+                if (t === tabName) {
+                    sec.classList.remove('hidden');
+                } else {
+                    sec.classList.add('hidden');
+                }
+            }
+            if (pill) {
+                if (t === tabName) {
+                    pill.className = 'admin-pill px-3 py-1.5 rounded-xl text-xs font-bold transition-all bg-purple-700 text-white shadow-sm flex items-center gap-1.5 shrink-0';
+                } else {
+                    pill.className = 'admin-pill px-3 py-1.5 rounded-xl text-xs font-medium transition-all text-purple-900 hover:bg-purple-100 flex items-center gap-1.5 shrink-0';
+                }
+            }
+        });
+        initLucideIcons();
+    };
+
+    function renderAdminPanelData() {
+        const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const visits = (State.visits && State.visits.length) ? State.visits : getLocalVisits();
+
+        // 1. KPI Stats
+        const statVisits = document.getElementById('adminStatTotalVisits');
+        const statSrRep = document.getElementById('adminStatSrRepName');
+        const statTeam = document.getElementById('adminStatTeamCount');
+        const statDb = document.getElementById('adminStatSupabaseStatus');
+        const dbBadge = document.getElementById('adminDbStatusBadge');
+
+        if (statVisits) statVisits.textContent = String(visits.length);
+        if (statTeam) statTeam.textContent = String(reps.length);
+
+        // Find Sr. Sales Rep
+        const srMember = reps.find(m => m.role_type === 'sr_sales_rep');
+        if (statSrRep) {
+            statSrRep.textContent = srMember ? srMember.name : 'Not Designated';
+        }
+
+        // Sr Rep Card in Team Tab
+        const srCardName = document.getElementById('adminSrRepCardName');
+        const srCardRole = document.getElementById('adminSrRepCardRole');
+        const srCardEmpId = document.getElementById('adminSrRepCardEmpId');
+
+        if (srCardName) srCardName.textContent = srMember ? srMember.name : 'No Sr. Sales Rep Designated';
+        if (srCardRole) srCardRole.textContent = srMember ? (srMember.designation || 'Sr. Sales Rep') : '-';
+        if (srCardEmpId) srCardEmpId.textContent = srMember ? (srMember.employee_id || 'SR-00') : '-';
+
+        // Supabase Status
+        const isDbConnected = AppConfig.isConfigured();
+        if (statDb) {
+            statDb.textContent = isDbConnected ? 'Supabase Connected' : 'Demo (LocalStorage)';
+            statDb.className = isDbConnected ? 'text-xs font-black text-emerald-700 block truncate' : 'text-xs font-black text-slate-900 block truncate';
+        }
+        if (dbBadge) {
+            dbBadge.textContent = isDbConnected ? '🟢 Live PostgreSQL Connected' : 'Demo (LocalStorage)';
+            dbBadge.className = isDbConnected
+                ? 'text-xs font-bold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200'
+                : 'text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200';
+        }
+
+        // Database Inputs
+        const urlInput = document.getElementById('adminDbUrlInput');
+        const keyInput = document.getElementById('adminDbKeyInput');
+        if (urlInput) urlInput.value = AppConfig.supabaseUrl || '';
+        if (keyInput) keyInput.value = AppConfig.supabaseAnonKey || '';
+
+        // 2. Team Directory Table
+        const teamContainer = document.getElementById('adminTeamMembersList');
+        if (teamContainer) {
+            if (reps.length === 0) {
+                teamContainer.innerHTML = `
+                    <div class="p-8 text-center text-slate-400 text-sm">
+                        No team members registered. Click "Add Member" to onboard sales reps.
+                    </div>
+                `;
+            } else {
+                teamContainer.innerHTML = reps.map(m => {
+                    const isSr = m.role_type === 'sr_sales_rep';
+                    const repVisits = visits.filter(v => v.sales_rep_id === m.id || v.sales_rep_name === m.name);
+                    const roleBadge = isSr
+                        ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                             <i data-lucide="award" class="w-3.5 h-3.5 text-purple-600"></i> Sr. Sales Rep
+                           </span>`
+                        : `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                             <i data-lucide="user" class="w-3.5 h-3.5 text-blue-500"></i> Sales Rep
+                           </span>`;
+
+                    return `
+                        <div class="p-3.5 sm:px-5 hover:bg-slate-50 transition-colors grid grid-cols-1 sm:grid-cols-12 gap-2 sm:gap-1 items-center">
+                            <!-- Member Name & ID -->
+                            <div class="sm:col-span-4 flex items-center space-x-2.5">
+                                <div class="w-9 h-9 rounded-xl ${isSr ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'} flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                    ${(m.name || 'SR').slice(0, 2).toUpperCase()}
+                                </div>
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        <h5 class="text-xs font-bold text-slate-900 truncate">${escapeHtml(m.name)}</h5>
+                                        ${isSr ? '<span class="text-[9px] bg-purple-600 text-white font-bold px-1.5 py-0.2 rounded">SR</span>' : ''}
+                                    </div>
+                                    <p class="text-[10px] text-slate-500 font-mono">ID: ${escapeHtml(m.employee_id || 'ID')}</p>
+                                </div>
+                            </div>
+
+                            <!-- Role & Visits -->
+                            <div class="sm:col-span-3">
+                                <div class="flex items-center gap-1 flex-wrap">
+                                    ${roleBadge}
+                                    <span class="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
+                                        ${repVisits.length} visits
+                                    </span>
+                                </div>
+                            </div>
+
+                            <!-- Contact -->
+                            <div class="sm:col-span-3 text-xs text-slate-600 space-y-0.5">
+                                <div class="flex items-center gap-1 truncate text-[11px]">
+                                    <i data-lucide="phone" class="w-3 h-3 text-slate-400 shrink-0"></i>
+                                    <span>${escapeHtml(m.phone || '-')}</span>
+                                </div>
+                                <div class="flex items-center gap-1 truncate text-[10px] text-slate-500">
+                                    <i data-lucide="mail" class="w-3 h-3 text-slate-400 shrink-0"></i>
+                                    <span>${escapeHtml(m.email || '-')}</span>
+                                </div>
+                            </div>
+
+                            <!-- Admin Actions -->
+                            <div class="sm:col-span-2 flex items-center justify-end space-x-1">
+                                <button type="button" onclick="window.openEditMemberModal('${m.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-50 transition-colors" title="Edit ${escapeHtml(m.name)}">
+                                    <i data-lucide="pencil" class="w-4 h-4"></i>
+                                </button>
+                                <button type="button" onclick="window.handleDeleteTeamMember('${m.id}', '${escapeHtml(m.name)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete Member">
+                                    <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        // 3. Persona Switcher Rep Select
+        const personaSelect = document.getElementById('adminPersonaRepSelect');
+        if (personaSelect) {
+            personaSelect.innerHTML = reps.map(m => `
+                <option value="${m.id}">${escapeHtml(m.name)} (${m.role_type === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep'} - ${escapeHtml(m.employee_id || '')})</option>
+            `).join('');
+        }
+
+        initLucideIcons();
+    }
+
+    window.adminQuickEditSrRep = function() {
+        const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const srMember = reps.find(m => m.role_type === 'sr_sales_rep');
+        if (srMember) {
+            window.openEditMemberModal(srMember.id);
+        } else {
+            alert('No Sr. Sales Rep designated yet. Click "Add Sales Person" or edit an existing representative to designate as Sr. Sales Rep.');
+            window.openAddMemberModal();
+        }
+    };
+
+    window.adminExportAllExcel = function() {
+        const allVisits = (State.visits && State.visits.length) ? State.visits : getLocalVisits();
+        if (!allVisits || !allVisits.length) {
+            alert('No visits recorded in the system yet to export.');
+            return;
+        }
+        exportVisitsToExcel(allVisits, `Company_All_Sales_Visits_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    };
+
+    window.adminExportAllCsv = function() {
+        const allVisits = (State.visits && State.visits.length) ? State.visits : getLocalVisits();
+        if (!allVisits || !allVisits.length) {
+            alert('No visits recorded in the system yet to export.');
+            return;
+        }
+        exportVisitsToCsv(allVisits);
+    };
+
+    window.adminDisconnectSupabase = function() {
+        if (!confirm('Disconnect Supabase and return to local browser demo mode?')) return;
+        AppConfig.clearConfig();
+        reinitSupabase();
+
+        const confUrl = document.getElementById('configUrlInput');
+        const confKey = document.getElementById('configKeyInput');
+        const adminUrl = document.getElementById('adminDbUrlInput');
+        const adminKey = document.getElementById('adminDbKeyInput');
+        if (confUrl) confUrl.value = '';
+        if (confKey) confKey.value = '';
+        if (adminUrl) adminUrl.value = '';
+        if (adminKey) adminKey.value = '';
+
+        updateConnectionIndicator();
+        renderAdminPanelData();
+        loadSalesTeam();
+        loadAndRenderVisits();
+        alert('Switched back to Local Browser Demo Mode.');
+    };
+
+    window.adminCopySqlSchema = async function() {
+        try {
+            await navigator.clipboard.writeText(EMBEDDED_SQL_SCHEMA);
+            const copyBtn = document.getElementById('adminCopySqlBtn');
+            if (copyBtn) {
+                copyBtn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5 text-emerald-600"></i> Copied to Clipboard!';
+                setTimeout(() => {
+                    copyBtn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy SQL Schema';
+                    initLucideIcons();
+                }, 2500);
+            }
+            initLucideIcons();
+        } catch (err) {
+            alert('SQL Schema:\n' + EMBEDDED_SQL_SCHEMA);
+        }
+    };
+
+    window.adminSwitchToSelectedRep = function() {
+        const select = document.getElementById('adminPersonaRepSelect');
+        const repId = select?.value;
+        if (!repId) return;
+
+        window.selectSalesRepUser(repId);
+        window.closeAdminAccessPanel();
+    };
+
+    function setupAdminAccessPanel() {
+        const modal = document.getElementById('adminAccessPanelModal');
+        const closeTopBtn = document.getElementById('closeAdminAccessPanelModalBtn');
+        const closeBottomBtn = document.getElementById('closeAdminAccessPanelBottomBtn');
+        const supabaseForm = document.getElementById('adminSupabaseForm');
+        const pinForm = document.getElementById('adminChangePinForm');
+
+        closeTopBtn?.addEventListener('click', window.closeAdminAccessPanel);
+        closeBottomBtn?.addEventListener('click', window.closeAdminAccessPanel);
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal) window.closeAdminAccessPanel();
+        });
+
+        // Supabase Save & Test in Admin Panel
+        supabaseForm?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const urlInput = document.getElementById('adminDbUrlInput');
+            const keyInput = document.getElementById('adminDbKeyInput');
+            const alertBox = document.getElementById('adminDbAlert');
+
+            const url = (urlInput?.value || '').trim();
+            const key = (keyInput?.value || '').trim();
+
+            if (!url || !key) {
+                if (alertBox) {
+                    alertBox.className = 'p-3 rounded-xl text-xs bg-rose-50 text-rose-800 border border-rose-200';
+                    alertBox.textContent = 'Please enter both Supabase Project URL and Anon API Key.';
+                    alertBox.classList.remove('hidden');
+                }
+                return;
+            }
+
+            if (alertBox) {
+                alertBox.className = 'p-3 rounded-xl text-xs bg-purple-50 text-purple-800 border border-purple-200 flex items-center gap-2';
+                alertBox.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin text-purple-600"></i> Testing Supabase connection...';
+                alertBox.classList.remove('hidden');
+                initLucideIcons();
+            }
+
+            const testResult = await testSupabaseConnection(url, key);
+
+            if (testResult.success) {
+                AppConfig.saveConfig(url, key);
+                reinitSupabase();
+
+                const confUrl = document.getElementById('configUrlInput');
+                const confKey = document.getElementById('configKeyInput');
+                if (confUrl) confUrl.value = url;
+                if (confKey) confKey.value = key;
+
+                if (alertBox) {
+                    alertBox.className = 'p-3 rounded-xl text-xs bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-2';
+                    alertBox.innerHTML = `<i data-lucide="check-circle" class="w-4 h-4 text-emerald-600"></i> ${testResult.message}`;
+                }
+                updateConnectionIndicator();
+                renderAdminPanelData();
+                await loadSalesTeam();
+                await loadAndRenderVisits();
+            } else {
+                if (alertBox) {
+                    alertBox.className = 'p-3 rounded-xl text-xs bg-red-50 text-red-800 border border-red-200 flex items-center gap-2';
+                    alertBox.innerHTML = `<i data-lucide="alert-triangle" class="w-4 h-4 text-red-600"></i> ${testResult.message}`;
+                }
+            }
+            initLucideIcons();
+        });
+
+        // Admin PIN Change
+        pinForm?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const pinInput = document.getElementById('newAdminPinInput');
+            const alertEl = document.getElementById('adminPinUpdateMsg');
+            const newPin = (pinInput?.value || '').trim();
+
+            if (!/^\d{4,6}$/.test(newPin)) {
+                if (alertEl) {
+                    alertEl.textContent = 'PIN must be between 4 and 6 numeric digits.';
+                    alertEl.className = 'text-xs font-semibold p-2.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-200';
+                    alertEl.classList.remove('hidden');
+                }
+                return;
+            }
+
+            setAdminPin(newPin);
+            if (pinInput) pinInput.value = '';
+            if (alertEl) {
+                alertEl.textContent = `✅ Admin Master PIN successfully updated to ${newPin}! Use this PIN to access the Admin Panel.`;
+                alertEl.className = 'text-xs font-semibold p-2.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200';
+                alertEl.classList.remove('hidden');
+            }
+        });
+    }
+
+    // --------------------------------------------------------------------------
     // 8. INITIALIZE APPLICATION
     // --------------------------------------------------------------------------
     async function initApp() {
@@ -3993,6 +4388,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         setupTeamManagement();
         setupEditMemberModal();
         setupSupabaseConfig();
+        setupAdminAccessPanel();
         setupLightbox();
 
         initUserSession();
