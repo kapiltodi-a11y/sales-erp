@@ -509,6 +509,110 @@
         return true;
     }
 
+    async function updateSalesTeamMember(id, updates) {
+        if (!id) throw new Error('Member ID is required.');
+        if (!updates.name || !updates.name.trim()) throw new Error('Member name cannot be empty.');
+
+        const local = getLocalTeam();
+        const index = local.findIndex(m => m.id === id);
+        if (index === -1) throw new Error('Sales team member not found.');
+
+        const existing = local[index];
+
+        // Security check: If target is a Sr. Sales Rep, ONLY Admin can edit!
+        if (existing.role_type === 'sr_sales_rep' && !isManagerOrAdmin()) {
+            throw new Error('Permission Denied: Only Admin can edit the name and details of a Sr. Sales Rep.');
+        }
+
+        const oldName = existing.name;
+        const newName = updates.name.trim();
+
+        const updatedMember = {
+            ...existing,
+            name: newName,
+            phone: (updates.phone !== undefined ? updates.phone : existing.phone || '').trim(),
+            email: (updates.email !== undefined ? updates.email : existing.email || '').trim(),
+            employee_id: (updates.employee_id !== undefined ? updates.employee_id : existing.employee_id || '').trim(),
+            role_type: updates.role_type || existing.role_type || 'sales_rep',
+            designation: (updates.designation || (updates.role_type === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep')).trim(),
+            updated_at: new Date().toISOString()
+        };
+
+        // 1. Update in local storage
+        local[index] = updatedMember;
+        saveLocalTeam(local);
+
+        // 2. Update Supabase if connected
+        const supabase = getSupabase();
+        if (supabase) {
+            try {
+                await supabase.from('sales_reps').update({
+                    name: updatedMember.name,
+                    phone: updatedMember.phone,
+                    email: updatedMember.email,
+                    employee_id: updatedMember.employee_id,
+                    role_type: updatedMember.role_type,
+                    designation: updatedMember.designation,
+                    updated_at: updatedMember.updated_at
+                }).eq('id', id);
+
+                // Update visits associated with this rep if name changed
+                if (oldName !== newName) {
+                    await supabase.from('client_visits').update({
+                        sales_rep_name: newName
+                    }).eq('sales_rep_id', id);
+                }
+            } catch (e) {
+                console.warn('Supabase updateSalesTeamMember sync error:', e);
+            }
+        }
+
+        // 3. Update existing client visits in local storage if name changed
+        if (oldName !== newName) {
+            const localVisits = getLocalVisits();
+            let visitsModified = false;
+            localVisits.forEach(v => {
+                if (v.sales_rep_id === id || (v.sales_rep_name && v.sales_rep_name.toLowerCase() === oldName.toLowerCase())) {
+                    v.sales_rep_name = newName;
+                    visitsModified = true;
+                }
+            });
+            if (visitsModified) {
+                saveLocalVisits(localVisits);
+                if (State.allVisitsCache) {
+                    State.allVisitsCache.forEach(v => {
+                        if (v.sales_rep_id === id || (v.sales_rep_name && v.sales_rep_name.toLowerCase() === oldName.toLowerCase())) {
+                            v.sales_rep_name = newName;
+                        }
+                    });
+                }
+                if (State.visits) {
+                    State.visits.forEach(v => {
+                        if (v.sales_rep_id === id || (v.sales_rep_name && v.sales_rep_name.toLowerCase() === oldName.toLowerCase())) {
+                            v.sales_rep_name = newName;
+                        }
+                    });
+                }
+            }
+        }
+
+        // 4. If active session is this user, update active session name & UI immediately
+        if (State.currentUser && (State.currentUser.id === id || State.currentUser.name === oldName)) {
+            State.currentUser.name = newName;
+            State.currentUser.role = updatedMember.role_type;
+            State.currentUser.role_type = updatedMember.role_type;
+            State.currentUser.designation = updatedMember.designation;
+            State.currentUser.phone = updatedMember.phone;
+            State.currentUser.employee_id = updatedMember.employee_id;
+            try {
+                localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(State.currentUser));
+            } catch (e) {}
+            updateUserSessionUI();
+        }
+
+        return updatedMember;
+    }
+
     // --------------------------------------------------------------------------
     // 6. CLIENT VISIT SERVICE
     // --------------------------------------------------------------------------
@@ -3527,28 +3631,40 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                      <i data-lucide="user" class="w-3.5 h-3.5 text-blue-500"></i> Sales Rep
                    </span>`;
 
-            // Delete permission rules:
-            // Admin can delete anyone
-            // Sr. Sales Rep can ONLY delete regular Sales Reps (cannot delete another Sr. Sales Rep)
+            // Action buttons:
+            // Admin can edit and delete anyone (including the Sr. Sales Rep)
+            // Sr. Sales Rep can ONLY delete regular Sales Reps; Sr. Sales Rep row requires Admin mode to edit
             let actionButtonHtml = '';
             if (currentUserIsAdmin) {
                 actionButtonHtml = `
-                    <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Member">
-                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                    </button>
+                    <div class="flex items-center justify-end space-x-1.5">
+                        <button onclick="window.openEditMemberModal('${member.id}')" class="text-slate-500 hover:text-purple-700 p-2 rounded-xl hover:bg-purple-50 transition-colors" title="Edit Member Name & Details">
+                            <i data-lucide="pencil" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Member">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
                 `;
             } else if (currentUserIsSrRep) {
                 if (isMemberSrRep) {
                     actionButtonHtml = `
-                        <span class="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg font-medium" title="Only Admin can delete a Sr. Sales Rep">
-                            <i data-lucide="shield" class="w-3 h-3 text-slate-400"></i> Protected
-                        </span>
+                        <div class="flex items-center justify-end space-x-1.5">
+                            <button onclick="window.promptManagerPin(() => window.openEditMemberModal('${member.id}'))" class="text-xs text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1 transition-colors shadow-xs" title="Unlock Admin Mode (PIN: 1234) to edit Sr. Sales Rep Name">
+                                <i data-lucide="lock" class="w-3 h-3"></i> Edit (Admin)
+                            </button>
+                            <span class="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-100 px-2 py-1 rounded-lg font-medium" title="Only Admin can delete a Sr. Sales Rep">
+                                <i data-lucide="shield" class="w-3 h-3 text-slate-400"></i> Protected
+                            </span>
+                        </div>
                     `;
                 } else {
                     actionButtonHtml = `
-                        <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Sales Rep">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
+                        <div class="flex items-center justify-end">
+                            <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Sales Rep">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
                     `;
                 }
             }
@@ -3616,6 +3732,99 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
         }
     };
+
+    window.openEditMemberModal = function(memberId) {
+        const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const member = reps.find(m => m.id === memberId);
+        if (!member) {
+            alert('Sales team member not found.');
+            return;
+        }
+
+        // Security check: If target is Sr. Sales Rep and user is not Admin, prompt for Admin PIN
+        if (member.role_type === 'sr_sales_rep' && !isManagerOrAdmin()) {
+            promptManagerPin(() => {
+                updateUserSessionUI();
+                window.openEditMemberModal(memberId);
+            });
+            return;
+        }
+
+        const modal = document.getElementById('editMemberModal');
+        const idInput = document.getElementById('editMemberId');
+        const nameInput = document.getElementById('editMemberName');
+        const phoneInput = document.getElementById('editMemberPhone');
+        const emailInput = document.getElementById('editMemberEmail');
+        const empIdInput = document.getElementById('editMemberEmpId');
+        const roleTypeSelect = document.getElementById('editMemberRoleType');
+        const designationInput = document.getElementById('editMemberRole');
+        const modalTitle = document.getElementById('editMemberModalTitle');
+
+        if (!modal) return;
+
+        if (idInput) idInput.value = member.id;
+        if (nameInput) nameInput.value = member.name || '';
+        if (phoneInput) phoneInput.value = member.phone || '';
+        if (emailInput) emailInput.value = member.email || '';
+        if (empIdInput) empIdInput.value = member.employee_id || '';
+        if (roleTypeSelect) roleTypeSelect.value = member.role_type || 'sales_rep';
+        if (designationInput) designationInput.value = member.designation || (member.role_type === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep');
+
+        if (modalTitle) {
+            modalTitle.textContent = member.role_type === 'sr_sales_rep' ? 'Edit Sr. Sales Rep Name & Details' : 'Edit Sales Rep Details';
+        }
+
+        modal.classList.remove('hidden');
+        nameInput?.focus();
+        nameInput?.select();
+        initLucideIcons();
+    };
+
+    function setupEditMemberModal() {
+        const modal = document.getElementById('editMemberModal');
+        const closeBtn = document.getElementById('closeEditMemberModalBtn');
+        const cancelBtn = document.getElementById('cancelEditMemberBtn');
+        const form = document.getElementById('editMemberForm');
+
+        const closeModal = () => modal?.classList.add('hidden');
+        closeBtn?.addEventListener('click', closeModal);
+        cancelBtn?.addEventListener('click', closeModal);
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal) closeModal();
+        });
+
+        form?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editMemberId')?.value;
+            const name = document.getElementById('editMemberName')?.value.trim();
+            const phone = document.getElementById('editMemberPhone')?.value.trim();
+            const email = document.getElementById('editMemberEmail')?.value.trim();
+            const empId = document.getElementById('editMemberEmpId')?.value.trim();
+            const roleType = document.getElementById('editMemberRoleType')?.value || 'sales_rep';
+            let designation = document.getElementById('editMemberRole')?.value.trim();
+
+            if (!name) {
+                alert('Member name is required.');
+                return;
+            }
+
+            if (!designation) {
+                designation = roleType === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep';
+            }
+
+            try {
+                const updated = await updateSalesTeamMember(id, {
+                    name, phone, email, employee_id: empId, role_type: roleType, designation
+                });
+                closeModal();
+                await loadSalesTeam();
+                await loadAndRenderVisits();
+                alert(`✅ Successfully updated ${updated.name} (${updated.designation || updated.role_type})!`);
+            } catch (err) {
+                alert('Failed to update member: ' + err.message);
+            }
+        });
+    }
 
     // --------------------------------------------------------------------------
     // SETTINGS: SUPABASE CLOUD CONNECTION
@@ -3782,6 +3991,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         setupVisitFormSubmission();
         setupDashboardFilters();
         setupTeamManagement();
+        setupEditMemberModal();
         setupSupabaseConfig();
         setupLightbox();
 
