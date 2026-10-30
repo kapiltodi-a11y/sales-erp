@@ -722,11 +722,19 @@
                 <div class="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
                     <div>
                         <h3 class="text-base font-bold text-slate-900">Sales Team Directory</h3>
-                        <p class="text-xs text-slate-500">Sales people listed here can be selected when submitting visits</p>
+                        <p class="text-xs text-slate-500">Manage field sales representatives and senior sales staff</p>
                     </div>
                     <span id="teamCountBadge" class="text-xs font-semibold bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full">
                         0 Members
                     </span>
+                </div>
+
+                <!-- Column Headers for Desktop & Tablet -->
+                <div class="hidden sm:grid sm:grid-cols-12 px-4 sm:px-6 py-2.5 bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    <div class="sm:col-span-4">Team Member & ID</div>
+                    <div class="sm:col-span-3">Role / Designation</div>
+                    <div class="sm:col-span-3">Contact Details</div>
+                    <div class="sm:col-span-2 text-right">Actions</div>
                 </div>
 
                 <div class="divide-y divide-slate-100" id="teamMembersList">
@@ -734,8 +742,31 @@
                 </div>
             </div>
 
+            <!-- Supabase Cloud Sync: Protected Banner for Sr. Sales Rep -->
+            <div id="supabaseLockedNotice" class="hidden bg-white rounded-2xl p-5 border border-purple-200 shadow-sm">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center flex-shrink-0">
+                            <i data-lucide="shield-check" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h3 class="text-sm font-bold text-slate-900">Database Configuration Restricted to Admin</h3>
+                                <span class="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full">Admin Only</span>
+                            </div>
+                            <p class="text-xs text-slate-500 mt-0.5">
+                                As a <strong>Sr. Sales Rep</strong>, your settings permissions allow you to <strong>add and delete Sales Reps</strong>. Cloud database credentials are only editable by Admin.
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="window.promptManagerPin(() => window.updateUserSessionUI())" class="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-bold transition-colors whitespace-nowrap shadow-sm">
+                        Unlock Admin Mode
+                    </button>
+                </div>
+            </div>
+
             <!-- Supabase Cloud Connection Settings -->
-            <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
+            <div id="supabaseSettingsCard" class="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-3">
                         <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -854,16 +885,33 @@
                     <input type="text" id="newMemberName" required placeholder="e.g. Rajesh Kumar"
                         class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
                 </div>
+                
+                <!-- Role / Access Level Selector -->
                 <div>
-                    <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberPhone">Contact Phone *</label>
-                    <input type="tel" id="newMemberPhone" required placeholder="e.g. +91 98765 00000"
-                        class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberRoleType">Role / Access Level *</label>
+                    <select id="newMemberRoleType" class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none font-medium">
+                        <option value="sales_rep">👤 Sales Rep (Field Visits, Personal Dashboard & MIS)</option>
+                        <option value="sr_sales_rep">⭐ Sr. Sales Rep (All Functions Access & Team Management)</option>
+                    </select>
                 </div>
-                <div>
-                    <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberEmail">Email Address</label>
-                    <input type="email" id="newMemberEmail" placeholder="e.g. rajesh@company.com"
-                        class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+
+                <div id="addMemberRoleNote" class="text-[11px] text-purple-700 bg-purple-50 p-2.5 rounded-xl border border-purple-200 hidden">
+                    <i data-lucide="info" class="w-3.5 h-3.5 inline mr-1"></i> As a Sr. Sales Rep, you have authorization to add new Sales Representatives.
                 </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberPhone">Contact Phone *</label>
+                        <input type="tel" id="newMemberPhone" required placeholder="e.g. +91 98765 00000"
+                            class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberEmail">Email Address</label>
+                        <input type="email" id="newMemberEmail" placeholder="e.g. rajesh@company.com"
+                            class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberEmpId">Employee ID</label>
@@ -871,8 +919,8 @@
                             class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberRole">Designation</label>
-                        <input type="text" id="newMemberRole" placeholder="Sales Executive"
+                        <label class="block text-xs font-semibold text-slate-700 mb-1" for="newMemberRole">Designation / Title</label>
+                        <input type="text" id="newMemberRole" placeholder="Sales Rep"
                             class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
                     </div>
                 </div>

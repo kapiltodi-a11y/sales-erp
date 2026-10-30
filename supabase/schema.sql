@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS public.sales_reps (
     email VARCHAR(255),
     phone VARCHAR(50),
     employee_id VARCHAR(100),
+    role_type VARCHAR(50) DEFAULT 'sales_rep', -- 'sales_rep' or 'sr_sales_rep'
     designation VARCHAR(150) DEFAULT 'Field Sales Representative',
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS public.client_visits (
 );
 
 -- Migration for existing databases: Add new columns if table already exists
+ALTER TABLE public.sales_reps ADD COLUMN IF NOT EXISTS role_type VARCHAR(50) DEFAULT 'sales_rep';
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS address_option_a TEXT;
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS address_option_b TEXT;
@@ -61,6 +63,7 @@ ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS visiting_card_back_url
 -- Update business_name from client_name for legacy rows
 UPDATE public.client_visits SET business_name = client_name WHERE business_name IS NULL AND client_name IS NOT NULL;
 UPDATE public.client_visits SET address_option_a = client_address WHERE address_option_a IS NULL AND client_address IS NOT NULL;
+UPDATE public.sales_reps SET role_type = 'sr_sales_rep' WHERE LOWER(designation) LIKE '%senior%' OR LOWER(designation) LIKE '%sr%' OR LOWER(name) LIKE '%rahul%';
 
 -- 4. Create Indexes for High Performance Queries & Duplicate Prevention
 CREATE INDEX IF NOT EXISTS idx_visits_sales_rep_id ON public.client_visits(sales_rep_id);
@@ -104,11 +107,11 @@ CREATE POLICY "Public access to client visits"
     WITH CHECK (true);
 
 -- 7. Insert Initial Sample Sales Team Members
-INSERT INTO public.sales_reps (name, email, phone, employee_id, designation, is_active)
+INSERT INTO public.sales_reps (name, email, phone, employee_id, role_type, designation, is_active)
 VALUES 
-    ('Rahul Sharma', 'rahul.sharma@example.com', '+91 98765 43210', 'EMP-101', 'Senior Sales Executive', true),
-    ('Priya Patel', 'priya.patel@example.com', '+91 98765 43211', 'EMP-102', 'Field Sales Specialist', true),
-    ('Amit Verma', 'amit.verma@example.com', '+91 98765 43212', 'EMP-103', 'Business Development Rep', true)
+    ('Rahul Sharma', 'rahul.sharma@example.com', '+91 98765 43210', 'EMP-101', 'sr_sales_rep', 'Sr. Sales Rep', true),
+    ('Priya Patel', 'priya.patel@example.com', '+91 98765 43211', 'EMP-102', 'sales_rep', 'Sales Rep', true),
+    ('Amit Verma', 'amit.verma@example.com', '+91 98765 43212', 'EMP-103', 'sales_rep', 'Sales Rep', true)
 ON CONFLICT DO NOTHING;
 
 -- 8. Storage Bucket Setup

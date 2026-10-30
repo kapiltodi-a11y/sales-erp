@@ -92,9 +92,33 @@ A modern, responsive field sales ERP web application designed for mobile sales t
   - 1-click export formatted with SheetJS containing all sales people, visit dates, business names, addresses (Option A & Option B), GPS coordinates, Google Maps links, contact details, email, pin code, remarks, and photo URLs.
 - **Interactive Lightbox**: Fullscreen inspection of visiting cards (front & back images or PDFs) and office storefront photos.
 
-### 3. Settings & Sales Team Management
-- **Add Sales Team Members**: Add new sales people with their Name, Phone, Email, Employee ID, and Designation.
-- **Delete Sales Team Members**: Remove inactive or departed sales reps with 1-click safety confirmation.
+### 5. Multi-Tier Role Hierarchy & Granular Access Control
+- **1. Sales Representative (`👤 Sales Rep`)**:
+  - **No Access to Settings**: The Settings tab is hidden from navigation (desktop header and mobile bottom bar) and direct access is strictly blocked.
+  - **Private Mode**: Can only see their own visits, remarks, and statistics.
+  - **Personal Downloads**: Can download an Excel / CSV file containing only their visits.
+  - **Personal MIS**: Can view and export personal performance scorecards and activity ledgers.
+- **2. Senior Sales Representative (`⭐ Sr. Sales Rep`)**:
+  - **Access to All Functions**:
+    - Record new visits for self or team.
+    - Full Dashboard visibility across **all sales representatives** in the company.
+    - Complete access to all filters (by any rep, date, status, common accounts).
+    - Company-wide Excel (`.xlsx`) and CSV downloads.
+    - Company-wide MIS performance reports with multi-sheet export.
+    - **Access to Settings Tab**: Unlocked directly without requiring a manager PIN.
+  - **Settings Restrictions (Add/Delete Sales Reps Only)**:
+    - Dedicated **Role / Designation Column** in the Sales Team Directory table (`⭐ Sr. Sales Rep` vs `👤 Sales Rep`).
+    - **Can Add Sales Reps**: Can create new field Sales Representatives.
+    - **Can Delete Sales Reps**: Can remove regular Sales Reps. Cannot delete another Sr. Sales Rep (protected status).
+    - **Database Security**: Supabase cloud credentials and connection configuration are locked to Admin mode to prevent unauthorized database changes.
+- **3. Manager / Admin Mode (`👑 Admin Mode`)**:
+  - Unlocked via PIN (default: `1234`).
+  - Full system control, including adding/deleting Sr. Sales Reps and modifying Supabase cloud database keys.
+
+### 6. Settings & Sales Team Management
+- **Role / Type Column**: Clear visual distinction between `⭐ Sr. Sales Rep` and `👤 Sales Rep`.
+- **Add Team Members**: Role selector allows assigning `Sales Rep` or `Sr. Sales Rep`.
+- **Safe Deletion**: Deletion permissions enforced in real-time according to role.
 - **Supabase Cloud Sync**:
   - Input your Supabase Project URL and Anon Public Key.
   - Live connection tester and schema health check.

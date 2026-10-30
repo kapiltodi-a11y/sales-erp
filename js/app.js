@@ -375,7 +375,8 @@
             email: 'rahul.sharma@example.com',
             phone: '+91 98765 43210',
             employee_id: 'EMP-101',
-            designation: 'Senior Sales Executive',
+            role_type: 'sr_sales_rep',
+            designation: 'Sr. Sales Rep',
             is_active: true,
             created_at: new Date(Date.now() - 30 * 86400000).toISOString()
         },
@@ -385,7 +386,8 @@
             email: 'priya.patel@example.com',
             phone: '+91 98765 43211',
             employee_id: 'EMP-102',
-            designation: 'Field Sales Specialist',
+            role_type: 'sales_rep',
+            designation: 'Sales Rep',
             is_active: true,
             created_at: new Date(Date.now() - 20 * 86400000).toISOString()
         },
@@ -395,7 +397,8 @@
             email: 'amit.verma@example.com',
             phone: '+91 98765 43212',
             employee_id: 'EMP-103',
-            designation: 'Business Development Rep',
+            role_type: 'sales_rep',
+            designation: 'Sales Rep',
             is_active: true,
             created_at: new Date(Date.now() - 10 * 86400000).toISOString()
         }
@@ -404,7 +407,28 @@
     function getLocalTeam() {
         try {
             const stored = localStorage.getItem(TEAM_STORAGE_KEY);
-            if (stored) return JSON.parse(stored);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    // Ensure role_type is populated for existing stored items
+                    let modified = false;
+                    parsed.forEach(m => {
+                        if (!m.role_type) {
+                            const des = (m.designation || '').toLowerCase();
+                            if (des.includes('sr') || des.includes('senior') || (m.name && m.name.toLowerCase().includes('rahul'))) {
+                                m.role_type = 'sr_sales_rep';
+                                m.designation = m.designation || 'Sr. Sales Rep';
+                            } else {
+                                m.role_type = 'sales_rep';
+                                m.designation = m.designation || 'Sales Rep';
+                            }
+                            modified = true;
+                        }
+                    });
+                    if (modified) saveLocalTeam(parsed);
+                    return parsed;
+                }
+            }
         } catch (e) {}
         localStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(DEFAULT_TEAM_MEMBERS));
         return [...DEFAULT_TEAM_MEMBERS];
@@ -433,12 +457,14 @@
 
     async function addSalesTeamMember(member) {
         if (!member.name || !member.name.trim()) throw new Error('Member name is required.');
+        const roleType = member.role_type || 'sales_rep';
         const newMember = {
             name: member.name.trim(),
             email: (member.email || '').trim(),
             phone: (member.phone || '').trim(),
             employee_id: (member.employee_id || `EMP-${Date.now().toString().slice(-4)}`).trim(),
-            designation: (member.designation || 'Field Sales Representative').trim(),
+            role_type: roleType,
+            designation: (member.designation || (roleType === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep')).trim(),
             is_active: member.is_active !== false,
             created_at: new Date().toISOString()
         };
@@ -465,11 +491,19 @@
 
     async function deleteSalesTeamMember(id) {
         if (!id) return false;
+
+        const local = getLocalTeam();
+        const target = local.find(m => m.id === id);
+
+        // Security check: Sr. Sales Rep can only delete regular Sales Reps
+        if (target && target.role_type === 'sr_sales_rep' && isSrSalesRep()) {
+            throw new Error('Permission Denied: Sr. Sales Reps cannot delete another Sr. Sales Rep. Only Admin can perform this action.');
+        }
+
         const supabase = getSupabase();
         if (supabase) {
             try { await supabase.from('sales_reps').delete().eq('id', id); } catch (e) {}
         }
-        const local = getLocalTeam();
         const filtered = local.filter(m => m.id !== id);
         saveLocalTeam(filtered);
         return true;
@@ -741,16 +775,17 @@
 
         // 1. REP PRIVACY / ISOLATION:
         // One sales representative MUST NOT be allowed to see other sales reps' visits or remarks
-        if (State.currentUser && State.currentUser.role === 'rep') {
-            const currentRepId = State.currentUser.id;
-            const currentRepName = (State.currentUser.name || '').toLowerCase();
+        // Sr. Sales Reps and Managers have access to all functions (all visits across the company)
+        if (isSalesRep()) {
+            const currentRepId = State.currentUser?.id;
+            const currentRepName = (State.currentUser?.name || '').toLowerCase();
             filtered = filtered.filter(v => {
                 const repIdMatch = v.sales_rep_id && v.sales_rep_id === currentRepId;
                 const repNameMatch = v.sales_rep_name && v.sales_rep_name.toLowerCase() === currentRepName;
                 return repIdMatch || repNameMatch;
             });
         } else if (filters.salesRep && filters.salesRep !== 'ALL') {
-            // Manager mode can filter by any specific sales representative
+            // Sr. Sales Rep & Manager mode can filter by any specific sales representative or view ALL
             filtered = filtered.filter(v => v.sales_rep_id === filters.salesRep || (v.sales_rep_name && v.sales_rep_name.toLowerCase() === filters.salesRep.toLowerCase()));
         }
 
@@ -917,13 +952,13 @@
                 { wch: 30 }  // Back Card URL
             ];
 
-            const sheetName = State.currentUser?.role === 'rep' ? 'My Visits' : 'All Sales Visits';
+            const sheetName = isSalesRep() ? 'My Visits' : 'All Sales Visits';
             window.XLSX.utils.book_append_sheet(wb, ws, sheetName);
 
             let fileName = customFilename;
             if (!fileName) {
-                if (State.currentUser && State.currentUser.role === 'rep') {
-                    const cleanName = (State.currentUser.name || 'Rep').replace(/[^a-zA-Z0-9]/g, '_');
+                if (isSalesRep()) {
+                    const cleanName = (State.currentUser?.name || 'Rep').replace(/[^a-zA-Z0-9]/g, '_');
                     fileName = `My_Sales_Visits_${cleanName}_${new Date().toISOString().split('T')[0]}.xlsx`;
                 } else {
                     fileName = `Sales_Visits_Report_All_Reps_${new Date().toISOString().split('T')[0]}.xlsx`;
@@ -988,8 +1023,8 @@
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        const fileName = (State.currentUser?.role === 'rep')
-            ? `My_Sales_Visits_${(State.currentUser.name || 'Rep').replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`
+        const fileName = isSalesRep()
+            ? `My_Sales_Visits_${(State.currentUser?.name || 'Rep').replace(/[^a-zA-Z0-9]/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`
             : `Sales_Visits_Report_${new Date().toISOString().split('T')[0]}.csv`;
         link.download = fileName;
         document.body.appendChild(link);
@@ -1076,7 +1111,7 @@
         if (State.commonAccountsMap) {
             State.commonAccountsMap.forEach((entry, norm) => {
                 const myVisits = visits.filter(v => normalizeBusinessName(v.business_name || v.client_name) === norm);
-                if (myVisits.length > 0 || State.currentUser?.role === 'manager') {
+                if (myVisits.length > 0 || hasAllFunctionsAccess()) {
                     const otherReps = Array.from(entry.repNames).filter(n => n.toLowerCase() !== (rep.name || '').toLowerCase());
                     commonAccountRows.push([
                         entry.businessName,
@@ -1332,14 +1367,38 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     const USER_SESSION_STORAGE_KEY = 'sales_erp_active_user_session';
     const DEFAULT_MANAGER_PIN = '1234';
 
+    // Role helper predicates
+    function isSalesRep(u) {
+        const user = u || (typeof State !== 'undefined' ? State.currentUser : null);
+        if (!user) return false;
+        return user.role === 'sales_rep' || user.role === 'rep' || user.role_type === 'sales_rep';
+    }
+
+    function isSrSalesRep(u) {
+        const user = u || (typeof State !== 'undefined' ? State.currentUser : null);
+        if (!user) return false;
+        return user.role === 'sr_sales_rep' || user.role_type === 'sr_sales_rep';
+    }
+
+    function isManagerOrAdmin(u) {
+        const user = u || (typeof State !== 'undefined' ? State.currentUser : null);
+        if (!user) return false;
+        return user.role === 'manager' || user.role === 'admin' || user.role_type === 'manager' || user.role_type === 'admin';
+    }
+
+    function hasAllFunctionsAccess(u) {
+        return isSrSalesRep(u) || isManagerOrAdmin(u);
+    }
+
     const State = {
         currentTab: 'new-visit',
         currentUser: {
-            role: 'rep', // 'rep' or 'manager'
+            role: 'sr_sales_rep', // 'sales_rep', 'sr_sales_rep', or 'manager'
+            role_type: 'sr_sales_rep',
             id: 'rep-001',
             name: 'Rahul Sharma',
             employee_id: 'EMP-101',
-            designation: 'Senior Sales Executive',
+            designation: 'Sr. Sales Rep',
             phone: '+91 98765 43210'
         },
         salesTeam: [],
@@ -1378,7 +1437,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const stored = localStorage.getItem(USER_SESSION_STORAGE_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
-                if (parsed && (parsed.role === 'rep' || parsed.role === 'manager')) {
+                if (parsed && (parsed.role === 'rep' || parsed.role === 'sales_rep' || parsed.role === 'sr_sales_rep' || parsed.role === 'manager' || parsed.role === 'admin')) {
+                    if (parsed.role === 'rep') {
+                        // Migrate legacy 'rep' role
+                        const isSr = (parsed.designation && (parsed.designation.toLowerCase().includes('sr') || parsed.designation.toLowerCase().includes('senior'))) ||
+                                     (parsed.name && parsed.name.toLowerCase().includes('rahul'));
+                        parsed.role = isSr ? 'sr_sales_rep' : 'sales_rep';
+                        parsed.role_type = parsed.role;
+                    }
                     State.currentUser = parsed;
                 }
             }
@@ -1400,55 +1466,111 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     function updateUserSessionUI() {
         const u = State.currentUser;
-        const isManager = u.role === 'manager';
+        const isAdmin = isManagerOrAdmin(u);
+        const isSr = isSrSalesRep(u);
+        const isRep = isSalesRep(u);
 
-        // Header active user pill
+        // 1. SETTINGS NAVIGATION PERMISSION:
+        // Regular sales reps MUST NOT be given access to settings
+        const tabBtnSettingsDesk = document.getElementById('tabBtnSettingsDesk');
+        const tabBtnSettingsMob = document.getElementById('tabBtnSettingsMob');
+
+        if (isRep) {
+            if (tabBtnSettingsDesk) tabBtnSettingsDesk.classList.add('hidden');
+            if (tabBtnSettingsMob) tabBtnSettingsMob.classList.add('hidden');
+
+            // If user is currently on Settings, strictly redirect out to visits
+            if (State.currentTab === 'settings') {
+                switchTab('visits');
+            }
+        } else {
+            // Sr. Sales Rep & Admin have access to Settings
+            if (tabBtnSettingsDesk) tabBtnSettingsDesk.classList.remove('hidden');
+            if (tabBtnSettingsMob) tabBtnSettingsMob.classList.remove('hidden');
+        }
+
+        // 2. SETTINGS VIEW PERMISSIONS:
+        // Sr. Sales Rep can only add or delete Sales Reps; Supabase database credentials locked to Admin
+        const supabaseSettingsCard = document.getElementById('supabaseSettingsCard');
+        const supabaseLockedNotice = document.getElementById('supabaseLockedNotice');
+
+        if (isSr) {
+            if (supabaseSettingsCard) supabaseSettingsCard.classList.add('hidden');
+            if (supabaseLockedNotice) supabaseLockedNotice.classList.remove('hidden');
+        } else if (isAdmin) {
+            if (supabaseSettingsCard) supabaseSettingsCard.classList.remove('hidden');
+            if (supabaseLockedNotice) supabaseLockedNotice.classList.add('hidden');
+        }
+
+        // 3. HEADER ACTIVE USER PILL
         const avatar = document.getElementById('activeUserAvatar');
         const nameText = document.getElementById('activeUserNameText');
         const roleBadge = document.getElementById('activeUserRoleBadge');
 
         if (avatar) {
-            avatar.textContent = isManager ? '🛡️' : (u.name || 'SR').slice(0, 2).toUpperCase();
-            avatar.className = isManager
-                ? 'w-7 h-7 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-sm'
-                : 'w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm';
+            if (isAdmin) {
+                avatar.textContent = '🛡️';
+                avatar.className = 'w-7 h-7 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-sm';
+            } else if (isSr) {
+                avatar.textContent = (u.name || 'SR').slice(0, 2).toUpperCase();
+                avatar.className = 'w-7 h-7 rounded-lg bg-purple-700 text-white flex items-center justify-center font-bold text-xs shadow-sm ring-1 ring-purple-300';
+            } else {
+                avatar.textContent = (u.name || 'SR').slice(0, 2).toUpperCase();
+                avatar.className = 'w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm';
+            }
         }
         if (nameText) {
-            nameText.textContent = isManager ? 'Manager / Admin' : (u.name || 'Sales Rep');
+            nameText.textContent = isAdmin ? 'Manager / Admin' : (u.name || 'Sales Rep');
         }
         if (roleBadge) {
-            roleBadge.textContent = isManager ? 'Full Team Access (Admin)' : `${u.designation || 'Sales Rep'} (Private)`;
-            roleBadge.className = isManager ? 'inline-block text-[10px] text-purple-600 font-bold' : 'inline-block text-[10px] text-blue-600 font-medium';
+            if (isAdmin) {
+                roleBadge.textContent = '👑 Admin / Manager (Full Access)';
+                roleBadge.className = 'inline-block text-[10px] text-purple-700 font-bold';
+            } else if (isSr) {
+                roleBadge.textContent = '⭐ Sr. Sales Rep (All Functions Access)';
+                roleBadge.className = 'inline-block text-[10px] text-purple-700 font-bold';
+            } else {
+                roleBadge.textContent = `👤 ${u.designation || 'Sales Rep'} (Private Mode)`;
+                roleBadge.className = 'inline-block text-[10px] text-blue-600 font-medium';
+            }
         }
 
-        // Dashboard titles & privacy notice
+        // 4. DASHBOARD TITLES & PRIVACY MODE
         const dTitle = document.getElementById('dashboardViewTitle');
         const dSub = document.getElementById('dashboardViewSubtitle');
         const exportBtnText = document.getElementById('exportExcelBtnText');
         const totalLabel = document.getElementById('statTotalVisitsLabel');
 
         if (dTitle) {
-            dTitle.innerHTML = isManager
-                ? `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">🛡️ Manager Mode</span>`
-                : `My Sales Visits <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">🔒 Private Rep Mode</span>`;
+            if (isAdmin) {
+                dTitle.innerHTML = `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">🛡️ Admin Mode</span>`;
+            } else if (isSr) {
+                dTitle.innerHTML = `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">⭐ Sr. Sales Rep Mode</span>`;
+            } else {
+                dTitle.innerHTML = `My Sales Visits <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">🔒 Private Rep Mode</span>`;
+            }
         }
         if (dSub) {
-            dSub.textContent = isManager
-                ? 'Monitor all field rep activity, cross-rep visits, and deal statuses'
-                : `Viewing only visits and remarks for ${u.name}. Other sales reps cannot see your records.`;
+            if (isAdmin) {
+                dSub.textContent = 'Monitor all field rep activity, cross-rep visits, and deal statuses';
+            } else if (isSr) {
+                dSub.textContent = `Full visibility across all sales representatives, visits, common accounts, and team reports`;
+            } else {
+                dSub.textContent = `Viewing only visits and remarks for ${u.name}. Other sales reps cannot see your records.`;
+            }
         }
         if (exportBtnText) {
-            exportBtnText.textContent = isManager ? 'Download All Visits (.xlsx)' : 'Download My Visits (.xlsx)';
+            exportBtnText.textContent = hasAllFunctionsAccess(u) ? 'Download All Visits (.xlsx)' : 'Download My Visits (.xlsx)';
         }
         if (totalLabel) {
-            totalLabel.textContent = isManager ? 'All team visits' : 'Your recorded visits';
+            totalLabel.textContent = hasAllFunctionsAccess(u) ? 'All team visits' : 'Your recorded visits';
         }
 
-        // Update Sales Rep dropdown in Dashboard filters
+        // 5. DASHBOARD SALES REP FILTER DROPDOWN
         const salesRepSelect = document.getElementById('filterSalesRep');
         const filterLockBadge = document.getElementById('salesRepFilterLockBadge');
         if (salesRepSelect) {
-            if (!isManager) {
+            if (isRep) {
                 salesRepSelect.value = u.id;
                 salesRepSelect.disabled = true;
                 salesRepSelect.classList.add('cursor-not-allowed', 'opacity-80', 'bg-slate-100');
@@ -1460,11 +1582,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
         }
 
-        // Update New Visit Form rep select
+        // 6. NEW VISIT FORM REP SELECT
         const newVisitRepSelect = document.getElementById('salesRepSelect');
         const repLockHint = document.getElementById('salesRepLockHint');
         if (newVisitRepSelect) {
-            if (!isManager) {
+            if (isRep) {
                 newVisitRepSelect.value = u.id;
                 newVisitRepSelect.disabled = true;
                 newVisitRepSelect.classList.add('bg-slate-100', 'cursor-not-allowed');
@@ -1502,6 +1624,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 pinInput.value = '';
                 saveUserSession({
                     role: 'manager',
+                    role_type: 'manager',
                     id: 'admin',
                     name: 'Manager / Admin',
                     employee_id: 'MGR-01',
@@ -1510,7 +1633,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 });
                 closeModal();
                 loadAndRenderVisits();
-                alert('🛡️ Manager Mode Unlocked! You now have full access to view all sales reps, visits, downloads, and team settings.');
+                alert('🛡️ Manager / Admin Mode Unlocked! You now have full access to view all sales reps, visits, downloads, database settings, and team management.');
             } else {
                 if (pinError) {
                     pinError.textContent = 'Invalid Manager PIN. Default PIN is 1234.';
@@ -1538,27 +1661,59 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         pinError?.classList.add('hidden');
 
         const u = State.currentUser;
-        if (modalActiveAvatar) modalActiveAvatar.textContent = u.role === 'manager' ? '🛡️' : (u.name || 'SR').slice(0, 2).toUpperCase();
-        if (modalActiveName) modalActiveName.textContent = u.role === 'manager' ? 'Manager / Admin' : u.name;
-        if (modalActiveRole) modalActiveRole.textContent = u.role === 'manager' ? 'Full Access Mode (All Reps)' : `${u.designation || 'Sales Representative'} (Private Mode)`;
+        const isAdmin = isManagerOrAdmin(u);
+        const isSr = isSrSalesRep(u);
+
+        if (modalActiveAvatar) {
+            if (isAdmin) {
+                modalActiveAvatar.textContent = '🛡️';
+                modalActiveAvatar.className = 'w-10 h-10 rounded-xl bg-purple-600 text-white flex items-center justify-center font-black text-sm shadow-sm';
+            } else if (isSr) {
+                modalActiveAvatar.textContent = (u.name || 'SR').slice(0, 2).toUpperCase();
+                modalActiveAvatar.className = 'w-10 h-10 rounded-xl bg-purple-700 text-white flex items-center justify-center font-black text-sm shadow-sm ring-1 ring-purple-300';
+            } else {
+                modalActiveAvatar.textContent = (u.name || 'SR').slice(0, 2).toUpperCase();
+                modalActiveAvatar.className = 'w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black text-sm shadow-sm';
+            }
+        }
+        if (modalActiveName) {
+            modalActiveName.textContent = isAdmin ? 'Manager / Admin' : u.name;
+        }
+        if (modalActiveRole) {
+            if (isAdmin) {
+                modalActiveRole.textContent = '👑 Admin Mode (All Reps & Settings)';
+            } else if (isSr) {
+                modalActiveRole.textContent = '⭐ Sr. Sales Rep (All Functions Access)';
+            } else {
+                modalActiveRole.textContent = `👤 ${u.designation || 'Sales Representative'} (Private Mode)`;
+            }
+        }
 
         // Populate rep list
         if (repList) {
             const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
             repList.innerHTML = reps.map(m => {
-                const isSelected = u.role === 'rep' && (u.id === m.id || u.name === m.name);
+                const isSelected = !isAdmin && (u.id === m.id || u.name === m.name);
+                const isMemberSr = m.role_type === 'sr_sales_rep';
+                const roleBadge = isMemberSr
+                    ? '<span class="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full border border-purple-200">⭐ Sr. Sales Rep</span>'
+                    : '<span class="text-[10px] bg-blue-50 text-blue-700 font-medium px-2 py-0.5 rounded-full border border-blue-200">👤 Sales Rep</span>';
+
                 return `
-                    <div onclick="window.selectSalesRepUser('${m.id}')" class="p-2.5 rounded-xl border ${isSelected ? 'border-blue-500 bg-blue-50/70' : 'border-slate-200 bg-white hover:bg-slate-50'} cursor-pointer flex items-center justify-between transition-colors">
+                    <div onclick="window.selectSalesRepUser('${m.id}')" class="p-2.5 rounded-xl border ${isSelected ? (isMemberSr ? 'border-purple-500 bg-purple-50/70' : 'border-blue-500 bg-blue-50/70') : 'border-slate-200 bg-white hover:bg-slate-50'} cursor-pointer flex items-center justify-between transition-colors">
                         <div class="flex items-center space-x-2.5">
-                            <div class="w-8 h-8 rounded-lg ${isSelected ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700'} flex items-center justify-center font-bold text-xs">
+                            <div class="w-8 h-8 rounded-lg ${isSelected ? (isMemberSr ? 'bg-purple-700 text-white' : 'bg-blue-600 text-white') : (isMemberSr ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-slate-100 text-slate-700')} flex items-center justify-center font-bold text-xs">
                                 ${(m.name || 'SR').slice(0, 2).toUpperCase()}
                             </div>
                             <div>
-                                <h5 class="text-xs font-bold text-slate-800">${escapeHtml(m.name)}</h5>
-                                <p class="text-[10px] text-slate-500">${escapeHtml(m.designation || 'Sales Rep')} • ${escapeHtml(m.employee_id || 'ID')}</p>
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <h5 class="text-xs font-bold text-slate-800">${escapeHtml(m.name)}</h5>
+                                    ${roleBadge}
+                                </div>
+                                <p class="text-[10px] text-slate-500">${escapeHtml(m.designation || (isMemberSr ? 'Sr. Sales Rep' : 'Sales Rep'))} • ${escapeHtml(m.employee_id || 'ID')}</p>
                             </div>
                         </div>
-                        ${isSelected ? '<span class="text-[10px] bg-blue-600 text-white font-bold px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] text-blue-600 font-semibold hover:underline">Switch</span>'}
+                        ${isSelected ? '<span class="text-[10px] bg-slate-800 text-white font-bold px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] text-blue-600 font-semibold hover:underline">Switch</span>'}
                     </div>
                 `;
             }).join('');
@@ -1572,18 +1727,28 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
         const found = reps.find(m => m.id === repId);
         if (found) {
+            const roleType = found.role_type || (found.designation && (found.designation.toLowerCase().includes('sr') || found.designation.toLowerCase().includes('senior')) ? 'sr_sales_rep' : 'sales_rep');
             saveUserSession({
-                role: 'rep',
+                role: roleType,
+                role_type: roleType,
                 id: found.id,
                 name: found.name,
                 employee_id: found.employee_id || '',
-                designation: found.designation || 'Sales Representative',
+                designation: found.designation || (roleType === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep'),
                 phone: found.phone || ''
             });
             document.getElementById('userLoginModal')?.classList.add('hidden');
-            loadAndRenderVisits();
+
+            // If switching to regular Sales Rep while currently on Settings tab, redirect to visits
+            if (roleType === 'sales_rep' && State.currentTab === 'settings') {
+                switchTab('visits');
+            } else {
+                loadAndRenderVisits();
+            }
         }
     };
+
+    window.updateUserSessionUI = updateUserSessionUI;
 
     let pendingManagerAction = null;
 
@@ -1597,6 +1762,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         modal?.classList.remove('hidden');
         pinInput?.focus();
     }
+    window.promptManagerPin = promptManagerPin;
 
     function setupManagerPinModal() {
         const modal = document.getElementById('managerPinModal');
@@ -1701,10 +1867,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     function getFilteredVisitsForMis(period = 'ALL') {
         let visits = [...(State.allVisitsCache || getLocalVisits())];
 
-        // If sales rep, strictly filter to their visits
-        if (State.currentUser && State.currentUser.role === 'rep') {
-            const repId = State.currentUser.id;
-            const repName = (State.currentUser.name || '').toLowerCase();
+        // If regular sales rep, strictly filter to their visits
+        if (isSalesRep()) {
+            const repId = State.currentUser?.id;
+            const repName = (State.currentUser?.name || '').toLowerCase();
             visits = visits.filter(v => v.sales_rep_id === repId || (v.sales_rep_name && v.sales_rep_name.toLowerCase() === repName));
         }
 
@@ -1730,9 +1896,19 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const repEmpIdHeader = document.getElementById('misRepEmpIdHeader');
         const badge = document.getElementById('misRepBadge');
 
-        if (repNameHeader) repNameHeader.textContent = u.role === 'manager' ? 'All Sales Representatives (Manager View)' : u.name;
-        if (repEmpIdHeader) repEmpIdHeader.textContent = u.role === 'manager' ? 'Executive Overview' : (u.employee_id || 'EMP-101');
-        if (badge) badge.textContent = u.role === 'manager' ? 'Company-wide MIS' : 'Personal MIS Ledger';
+        if (repNameHeader) {
+            repNameHeader.textContent = hasAllFunctionsAccess(u)
+                ? (isManagerOrAdmin(u) ? 'All Sales Representatives (Manager View)' : 'All Sales Representatives (Sr. Sales Rep View)')
+                : u.name;
+        }
+        if (repEmpIdHeader) {
+            repEmpIdHeader.textContent = hasAllFunctionsAccess(u)
+                ? (isManagerOrAdmin(u) ? 'Executive Overview' : `${u.name} (Sr. Sales Rep)`)
+                : (u.employee_id || 'EMP-101');
+        }
+        if (badge) {
+            badge.textContent = hasAllFunctionsAccess(u) ? 'Company-wide MIS' : 'Personal MIS Ledger';
+        }
 
         const visits = getFilteredVisitsForMis(period);
         const total = visits.length;
@@ -1889,9 +2065,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     function switchTab(tabKey) {
-        // Protect Settings tab for sales reps: prompt for PIN
-        if (tabKey === 'settings' && State.currentUser && State.currentUser.role === 'rep') {
-            promptManagerPin(() => switchTab('settings'));
+        // Protect Settings tab: Sales Reps are STRICTLY NOT ALLOWED access
+        if (tabKey === 'settings' && isSalesRep()) {
+            alert('⛔ Access Restricted: Settings tab is not accessible to Sales Representatives. Only Sr. Sales Reps and Managers have access to Settings.');
             return;
         }
 
@@ -3233,7 +3409,46 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             initLucideIcons();
         };
 
-        openModalBtn?.addEventListener('click', () => toggleModal(true));
+        openModalBtn?.addEventListener('click', () => {
+            const roleSelect = document.getElementById('newMemberRoleType');
+            const roleNote = document.getElementById('addMemberRoleNote');
+            const roleInput = document.getElementById('newMemberRole');
+
+            if (isSrSalesRep()) {
+                // Sr. Sales Rep can only add regular Sales Reps
+                if (roleSelect) {
+                    roleSelect.value = 'sales_rep';
+                    Array.from(roleSelect.options).forEach(opt => {
+                        if (opt.value === 'sr_sales_rep') {
+                            opt.disabled = true;
+                            opt.textContent = '⭐ Sr. Sales Rep (Admin Only)';
+                        } else {
+                            opt.disabled = false;
+                        }
+                    });
+                }
+                if (roleNote) {
+                    roleNote.innerHTML = '<i data-lucide="info" class="w-3.5 h-3.5 inline mr-1"></i> As a Sr. Sales Rep, you are authorized to add new Sales Representatives.';
+                    roleNote.classList.remove('hidden');
+                }
+                if (roleInput) roleInput.value = 'Sales Rep';
+            } else {
+                // Admin mode can add both
+                if (roleSelect) {
+                    Array.from(roleSelect.options).forEach(opt => {
+                        opt.disabled = false;
+                        if (opt.value === 'sr_sales_rep') {
+                            opt.textContent = '⭐ Sr. Sales Rep (All Functions Access & Team Management)';
+                        }
+                    });
+                }
+                if (roleNote) roleNote.classList.add('hidden');
+                if (roleInput) roleInput.value = '';
+            }
+
+            toggleModal(true);
+        });
+
         closeModalBtn?.addEventListener('click', () => toggleModal(false));
         cancelModalBtn?.addEventListener('click', () => toggleModal(false));
 
@@ -3243,20 +3458,36 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const phone = document.getElementById('newMemberPhone').value.trim();
             const email = document.getElementById('newMemberEmail').value.trim();
             const empId = document.getElementById('newMemberEmpId').value.trim();
-            const role = document.getElementById('newMemberRole').value.trim();
+            const roleType = document.getElementById('newMemberRoleType')?.value || 'sales_rep';
+            let roleTitle = document.getElementById('newMemberRole')?.value.trim();
 
             if (!name) {
                 alert('Member name is required.');
                 return;
             }
 
+            if (isSrSalesRep() && roleType !== 'sales_rep') {
+                alert('⛔ Permission Denied: Sr. Sales Reps can only add regular Sales Representatives.');
+                return;
+            }
+
+            if (!roleTitle) {
+                roleTitle = roleType === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep';
+            }
+
             try {
                 await addSalesTeamMember({
-                    name, phone, email, employee_id: empId, designation: role, is_active: true
+                    name,
+                    phone,
+                    email,
+                    employee_id: empId,
+                    role_type: roleType,
+                    designation: roleTitle,
+                    is_active: true
                 });
                 toggleModal(false);
                 await loadSalesTeam();
-                alert(`Sales person "${name}" added successfully!`);
+                alert(`Sales team member "${name}" (${roleTitle}) added successfully!`);
             } catch (err) {
                 alert('Failed to add member: ' + err.message);
             }
@@ -3275,48 +3506,114 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         if (State.salesTeam.length === 0) {
             container.innerHTML = `
-                <div class="p-6 text-center text-slate-400 text-sm">
+                <div class="p-8 text-center text-slate-400 text-sm">
                     No sales team members found. Click "Add Sales Person" to create one.
                 </div>
             `;
             return;
         }
 
-        const html = State.salesTeam.map(member => `
-            <div class="p-4 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
-                        ${(member.name || 'SR').slice(0, 2).toUpperCase()}
-                    </div>
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="font-bold text-slate-900 text-sm">${escapeHtml(member.name)}</span>
-                            ${member.employee_id ? `<span class="text-[11px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">${escapeHtml(member.employee_id)}</span>` : ''}
-                        </div>
-                        <div class="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                            <span>${escapeHtml(member.designation || 'Sales Rep')}</span>
-                            <span>•</span>
-                            <span>${escapeHtml(member.phone || member.email || 'No contact')}</span>
-                        </div>
-                    </div>
-                </div>
+        const currentUserIsSrRep = isSrSalesRep();
+        const currentUserIsAdmin = isManagerOrAdmin();
 
-                <div class="flex items-center space-x-2">
-                    <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-lg hover:bg-red-50 transition-colors" title="Delete Member">
+        const html = State.salesTeam.map(member => {
+            const isMemberSrRep = member.role_type === 'sr_sales_rep';
+            const roleLabel = isMemberSrRep ? 'Sr. Sales Rep' : 'Sales Rep';
+            const roleBadge = isMemberSrRep
+                ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                     <i data-lucide="award" class="w-3.5 h-3.5 text-purple-600"></i> Sr. Sales Rep
+                   </span>`
+                : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                     <i data-lucide="user" class="w-3.5 h-3.5 text-blue-500"></i> Sales Rep
+                   </span>`;
+
+            // Delete permission rules:
+            // Admin can delete anyone
+            // Sr. Sales Rep can ONLY delete regular Sales Reps (cannot delete another Sr. Sales Rep)
+            let actionButtonHtml = '';
+            if (currentUserIsAdmin) {
+                actionButtonHtml = `
+                    <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Member">
                         <i data-lucide="trash-2" class="w-4 h-4"></i>
                     </button>
+                `;
+            } else if (currentUserIsSrRep) {
+                if (isMemberSrRep) {
+                    actionButtonHtml = `
+                        <span class="inline-flex items-center gap-1 text-[11px] text-slate-400 bg-slate-100 px-2.5 py-1 rounded-lg font-medium" title="Only Admin can delete a Sr. Sales Rep">
+                            <i data-lucide="shield" class="w-3 h-3 text-slate-400"></i> Protected
+                        </span>
+                    `;
+                } else {
+                    actionButtonHtml = `
+                        <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Sales Rep">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    `;
+                }
+            }
+
+            return `
+                <div class="p-4 sm:px-6 hover:bg-slate-50/70 transition-colors grid grid-cols-1 sm:grid-cols-12 gap-3 sm:gap-2 items-center">
+                    <!-- Column 1: Member Name & ID (col-span-4) -->
+                    <div class="sm:col-span-4 flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl ${isMemberSrRep ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-blue-100 text-blue-700 font-bold'} flex items-center justify-center text-sm shadow-sm shrink-0">
+                            ${(member.name || 'SR').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <span class="font-bold text-slate-900 text-sm truncate">${escapeHtml(member.name)}</span>
+                                ${member.employee_id ? `<span class="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">${escapeHtml(member.employee_id)}</span>` : ''}
+                            </div>
+                            <div class="text-[11px] text-slate-400 truncate">${escapeHtml(member.email || 'No email')}</div>
+                        </div>
+                    </div>
+
+                    <!-- Column 2: Role / Access Level (col-span-3) -->
+                    <div class="sm:col-span-3 flex items-center">
+                        <div class="space-y-0.5">
+                            ${roleBadge}
+                            ${member.designation && member.designation !== roleLabel ? `<div class="text-[10px] text-slate-400 pl-1">${escapeHtml(member.designation)}</div>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Column 3: Contact Phone (col-span-3) -->
+                    <div class="sm:col-span-3 text-xs text-slate-600">
+                        <div class="font-mono text-[11px]">${escapeHtml(member.phone || 'No phone')}</div>
+                        <div class="text-[10px] text-slate-400">Added ${new Date(member.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                    </div>
+
+                    <!-- Column 4: Actions (col-span-2 text-right) -->
+                    <div class="sm:col-span-2 flex items-center justify-end">
+                        ${actionButtonHtml}
+                    </div>
                 </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
 
         container.innerHTML = html;
         initLucideIcons();
     }
 
     window.handleDeleteTeamMember = async function(id, name) {
+        const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const target = reps.find(m => m.id === id);
+
+        if (isSrSalesRep()) {
+            if (target && target.role_type === 'sr_sales_rep') {
+                alert('⛔ Permission Denied: Sr. Sales Reps can only delete regular Sales Reps. Sr. Sales Reps can only be removed by Admin.');
+                return;
+            }
+        }
+
         if (confirm(`Are you sure you want to delete sales person "${name}"?`)) {
-            await deleteSalesTeamMember(id);
-            await loadSalesTeam();
+            try {
+                await deleteSalesTeamMember(id);
+                await loadSalesTeam();
+                alert(`Sales person "${name}" was deleted successfully.`);
+            } catch (err) {
+                alert('Failed to delete member: ' + err.message);
+            }
         }
     };
 
