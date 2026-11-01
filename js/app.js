@@ -446,8 +446,12 @@
                 if (activeOnly) query = query.eq('is_active', true);
                 const { data, error } = await query;
                 if (!error && Array.isArray(data)) {
-                    saveLocalTeam(data);
-                    return data;
+                    // Retain any locally-created members that are not in Supabase yet
+                    const local = getLocalTeam();
+                    const localOnly = local.filter(l => l.id && l.id.startsWith('rep-') && !data.some(d => d.id === l.id || (d.name && l.name && d.name.toLowerCase() === l.name.toLowerCase())));
+                    const merged = [...data, ...localOnly];
+                    saveLocalTeam(merged);
+                    return activeOnly ? merged.filter(m => m.is_active) : merged;
                 }
             } catch (e) {}
         }
@@ -475,17 +479,23 @@
                 const { data, error } = await supabase.from('sales_reps').insert([newMember]).select().single();
                 if (!error && data) {
                     const local = getLocalTeam();
-                    local.unshift(data);
-                    saveLocalTeam(local);
+                    const filtered = local.filter(m => m.id !== data.id && m.name.toLowerCase() !== data.name.toLowerCase());
+                    filtered.unshift(data);
+                    saveLocalTeam(filtered);
                     return data;
+                } else if (error) {
+                    console.warn('Supabase insert sales_reps failed, persisting locally:', error);
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.warn('Supabase insert sales_reps exception, persisting locally:', e);
+            }
         }
 
         const local = getLocalTeam();
         const createdLocally = { ...newMember, id: 'rep-' + Date.now() };
-        local.unshift(createdLocally);
-        saveLocalTeam(local);
+        const filtered = local.filter(m => m.name.toLowerCase() !== createdLocally.name.toLowerCase());
+        filtered.unshift(createdLocally);
+        saveLocalTeam(filtered);
         return createdLocally;
     }
 
@@ -2649,6 +2659,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             State.salesTeam = await getSalesTeam();
             populateSalesTeamDropdowns();
             renderSalesTeamSettings();
+            if (typeof renderAdminPanelData === 'function') {
+                renderAdminPanelData();
+            }
         } catch (e) {
             console.error('Failed to load sales team:', e);
         }
@@ -3844,6 +3857,48 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // --------------------------------------------------------------------------
     // SETTINGS: SALES TEAM MANAGEMENT
     // --------------------------------------------------------------------------
+    window.openAddMemberModal = function() {
+        const modal = document.getElementById('addMemberModal');
+        const roleSelect = document.getElementById('newMemberRoleType');
+        const roleNote = document.getElementById('addMemberRoleNote');
+        const roleInput = document.getElementById('newMemberRole');
+        const empInput = document.getElementById('newMemberEmpId');
+        const addMemberForm = document.getElementById('addMemberForm');
+
+        if (!modal) return;
+
+        addMemberForm?.reset();
+
+        const team = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        if (empInput) {
+            empInput.placeholder = `EMP-${100 + team.length + 1}`;
+        }
+
+        if (roleSelect) {
+            Array.from(roleSelect.options).forEach(opt => {
+                opt.disabled = false;
+                if (opt.value === 'sr_sales_rep') {
+                    opt.textContent = '⭐ Sr. Sales Rep (All Functions Access & Team Management)';
+                } else {
+                    opt.textContent = '👤 Sales Rep (Field Visits & Personal Dashboard)';
+                }
+            });
+            roleSelect.value = 'sales_rep';
+        }
+        if (roleNote) roleNote.classList.add('hidden');
+        if (roleInput) roleInput.value = 'Sales Rep';
+
+        modal.classList.remove('hidden');
+        document.getElementById('newMemberName')?.focus();
+        initLucideIcons();
+    };
+
+    window.closeAddMemberModal = function() {
+        const modal = document.getElementById('addMemberModal');
+        modal?.classList.add('hidden');
+        document.getElementById('addMemberForm')?.reset();
+    };
+
     function setupTeamManagement() {
         const openModalBtn = document.getElementById('openAddMemberModalBtn');
         const closeModalBtn = document.getElementById('closeAddMemberModalBtn');
@@ -3851,59 +3906,12 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const modal = document.getElementById('addMemberModal');
         const addMemberForm = document.getElementById('addMemberForm');
 
-        const toggleModal = (show) => {
-            if (show) {
-                modal.classList.remove('hidden');
-                document.getElementById('newMemberName')?.focus();
-            } else {
-                modal.classList.add('hidden');
-                addMemberForm?.reset();
-            }
-            initLucideIcons();
-        };
-
-        openModalBtn?.addEventListener('click', () => {
-            const roleSelect = document.getElementById('newMemberRoleType');
-            const roleNote = document.getElementById('addMemberRoleNote');
-            const roleInput = document.getElementById('newMemberRole');
-
-            if (isSrSalesRep()) {
-                // Sr. Sales Rep can only add regular Sales Reps
-                if (roleSelect) {
-                    roleSelect.value = 'sales_rep';
-                    Array.from(roleSelect.options).forEach(opt => {
-                        if (opt.value === 'sr_sales_rep') {
-                            opt.disabled = true;
-                            opt.textContent = '⭐ Sr. Sales Rep (Admin Only)';
-                        } else {
-                            opt.disabled = false;
-                        }
-                    });
-                }
-                if (roleNote) {
-                    roleNote.innerHTML = '<i data-lucide="info" class="w-3.5 h-3.5 inline mr-1"></i> As a Sr. Sales Rep, you are authorized to add new Sales Representatives.';
-                    roleNote.classList.remove('hidden');
-                }
-                if (roleInput) roleInput.value = 'Sales Rep';
-            } else {
-                // Admin mode can add both
-                if (roleSelect) {
-                    Array.from(roleSelect.options).forEach(opt => {
-                        opt.disabled = false;
-                        if (opt.value === 'sr_sales_rep') {
-                            opt.textContent = '⭐ Sr. Sales Rep (All Functions Access & Team Management)';
-                        }
-                    });
-                }
-                if (roleNote) roleNote.classList.add('hidden');
-                if (roleInput) roleInput.value = '';
-            }
-
-            toggleModal(true);
+        openModalBtn?.addEventListener('click', window.openAddMemberModal);
+        closeModalBtn?.addEventListener('click', window.closeAddMemberModal);
+        cancelModalBtn?.addEventListener('click', window.closeAddMemberModal);
+        modal?.addEventListener('click', (e) => {
+            if (e.target === modal) window.closeAddMemberModal();
         });
-
-        closeModalBtn?.addEventListener('click', () => toggleModal(false));
-        cancelModalBtn?.addEventListener('click', () => toggleModal(false));
 
         addMemberForm?.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -3916,11 +3924,6 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
             if (!name) {
                 alert('Member name is required.');
-                return;
-            }
-
-            if (isSrSalesRep() && roleType !== 'sales_rep') {
-                alert('⛔ Permission Denied: Sr. Sales Reps can only add regular Sales Representatives.');
                 return;
             }
 
@@ -3938,9 +3941,13 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     designation: roleTitle,
                     is_active: true
                 });
-                toggleModal(false);
+                window.closeAddMemberModal();
                 await loadSalesTeam();
                 renderSalesTeamSettings();
+                if (typeof renderAdminPanelData === 'function') {
+                    renderAdminPanelData();
+                }
+                populateSalesTeamDropdowns();
 
                 if (roleType === 'sales_rep') {
                     window.showNewRepLinkModal(createdMember);
