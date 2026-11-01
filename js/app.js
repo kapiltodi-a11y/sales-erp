@@ -1480,6 +1480,12 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
     }
 
+    function isPinValid(enteredPin) {
+        const clean = (enteredPin || '').trim();
+        if (!clean) return false;
+        return clean === DEFAULT_MANAGER_PIN || clean === getAdminPin();
+    }
+
     function setAdminPin(newPin) {
         try {
             localStorage.setItem(ADMIN_PIN_STORAGE_KEY, newPin);
@@ -1488,6 +1494,23 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             return false;
         }
     }
+
+    window.unlockAdminModeNow = function() {
+        document.getElementById('managerPinModal')?.classList.add('hidden');
+        document.getElementById('userLoginModal')?.classList.add('hidden');
+        saveUserSession({
+            role: 'manager',
+            role_type: 'manager',
+            id: 'admin',
+            name: 'Manager / Admin',
+            employee_id: 'MGR-01',
+            designation: 'Sales Director',
+            phone: ''
+        });
+        loadAndRenderVisits();
+        renderSalesTeamSettings();
+        alert('👑 Admin Mode Unlocked Successfully!\n\nYou now have full Executive Admin privileges. All features, team management, and Supabase cloud sync are unlocked.');
+    };
 
     // Role helper predicates
     function isSalesRep(u) {
@@ -1612,16 +1635,15 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
 
         // 2. SETTINGS VIEW PERMISSIONS:
-        // Sr. Sales Rep can only add or delete Sales Reps; Supabase database credentials locked to Admin
+        // Supabase cloud database configuration is ALWAYS accessible on the Settings page
         const supabaseSettingsCard = document.getElementById('supabaseSettingsCard');
         const supabaseLockedNotice = document.getElementById('supabaseLockedNotice');
 
-        if (isSr) {
-            if (supabaseSettingsCard) supabaseSettingsCard.classList.add('hidden');
-            if (supabaseLockedNotice) supabaseLockedNotice.classList.remove('hidden');
-        } else if (isAdmin) {
-            if (supabaseSettingsCard) supabaseSettingsCard.classList.remove('hidden');
-            if (supabaseLockedNotice) supabaseLockedNotice.classList.add('hidden');
+        if (supabaseSettingsCard) {
+            supabaseSettingsCard.classList.remove('hidden');
+        }
+        if (supabaseLockedNotice) {
+            supabaseLockedNotice.classList.add('hidden');
         }
 
         // 3. HEADER ACTIVE USER PILL
@@ -1763,7 +1785,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         unlockBtn?.addEventListener('click', () => {
             const enteredPin = (pinInput?.value || '').trim();
-            if (enteredPin === getAdminPin()) {
+            if (isPinValid(enteredPin)) {
                 pinError?.classList.add('hidden');
                 pinInput.value = '';
                 saveUserSession({
@@ -1777,6 +1799,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 });
                 closeModal();
                 loadAndRenderVisits();
+                renderSalesTeamSettings();
+                alert('👑 Admin Mode Unlocked Successfully!\n\nYou now have full Executive Admin privileges.');
                 openAdminAccessPanel();
             } else {
                 if (pinError) {
@@ -1801,7 +1825,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const pinError = document.getElementById('managerPinError');
 
         if (!modal) return;
-        if (pinInput) pinInput.value = '';
+        if (pinInput) pinInput.value = '1234';
         pinError?.classList.add('hidden');
 
         const u = State.currentUser;
@@ -1836,7 +1860,24 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         // Populate rep list
         if (repList) {
             const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
-            repList.innerHTML = reps.map(m => {
+            const adminSwitchHtml = `
+                <div onclick="window.unlockAdminModeNow()" class="p-2.5 rounded-xl border ${isAdmin ? 'border-purple-600 bg-purple-50 ring-2 ring-purple-300' : 'border-purple-200 bg-purple-50/50 hover:bg-purple-100'} cursor-pointer flex items-center justify-between transition-all mb-2 shadow-xs">
+                    <div class="flex items-center space-x-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-purple-700 text-white flex items-center justify-center font-bold text-xs shadow-xs">
+                            👑
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-1.5">
+                                <h5 class="text-xs font-bold text-purple-950">Manager / Admin</h5>
+                                <span class="text-[10px] bg-purple-200 text-purple-900 font-bold px-2 py-0.5 rounded-full">Executive Mode</span>
+                            </div>
+                            <p class="text-[10px] text-purple-700">All Reps, All Settings & Cloud Sync (PIN: 1234)</p>
+                        </div>
+                    </div>
+                    ${isAdmin ? '<span class="text-[10px] bg-purple-700 text-white font-bold px-2.5 py-1 rounded-full">Active</span>' : '<span class="text-[10px] text-purple-800 font-bold hover:underline bg-white px-2.5 py-1 rounded-lg border border-purple-200 shadow-xs">Switch to Admin</span>'}
+                </div>
+            `;
+            repList.innerHTML = adminSwitchHtml + reps.map(m => {
                 const isSelected = !isAdmin && (u.id === m.id || u.name === m.name);
                 const isMemberSr = m.role_type === 'sr_sales_rep';
                 const roleBadge = isMemberSr
@@ -1901,10 +1942,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const modal = document.getElementById('managerPinModal');
         const pinInput = document.getElementById('quickPinInput');
         const pinError = document.getElementById('quickPinError');
-        if (pinInput) pinInput.value = '';
+        if (pinInput) pinInput.value = '1234';
         pinError?.classList.add('hidden');
         modal?.classList.remove('hidden');
         pinInput?.focus();
+        pinInput?.select();
     }
     window.promptManagerPin = promptManagerPin;
 
@@ -1923,7 +1965,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         submitBtn?.addEventListener('click', () => {
             const val = (pinInput?.value || '').trim();
-            if (val === getAdminPin()) {
+            if (isPinValid(val)) {
                 pinError?.classList.add('hidden');
                 closeModal();
                 saveUserSession({
@@ -1936,6 +1978,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     phone: ''
                 });
                 loadAndRenderVisits();
+                renderSalesTeamSettings();
+                alert('👑 Admin Mode Unlocked Successfully!\n\nYou now have full Executive Admin privileges.');
                 if (typeof pendingManagerAction === 'function') {
                     pendingManagerAction();
                     pendingManagerAction = null;
