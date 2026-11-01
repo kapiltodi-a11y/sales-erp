@@ -1497,6 +1497,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     window.unlockAdminModeNow = function() {
+        if (typeof State !== 'undefined' && State.isLockedRepPortal) {
+            alert(`🔒 Dedicated Sales Rep Portal\n\nThis portal is permanently locked to ${State.currentUser?.name || 'Sales Representative'}.\n\nUser switching and Admin Mode are disabled on sales representative links.`);
+            return;
+        }
         document.getElementById('managerPinModal')?.classList.add('hidden');
         document.getElementById('userLoginModal')?.classList.add('hidden');
         saveUserSession({
@@ -1544,6 +1548,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     const State = {
         currentTab: 'new-visit',
+        isLockedRepPortal: false,
         currentUser: {
             role: 'sr_sales_rep', // 'sales_rep', 'sr_sales_rep', or 'manager'
             role_type: 'sr_sales_rep',
@@ -1574,6 +1579,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         ocrRawText: '',
         misSelectedPeriod: 'ALL'
     };
+    window.State = State;
 
     function initLucideIcons() {
         if (window.lucide && typeof window.lucide.createIcons === 'function') {
@@ -1584,29 +1590,114 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // --------------------------------------------------------------------------
     // USER SESSION & ACCESS CONTROL
     // --------------------------------------------------------------------------
-    function initUserSession() {
-        try {
-            const stored = localStorage.getItem(USER_SESSION_STORAGE_KEY);
-            if (stored) {
-                const parsed = JSON.parse(stored);
-                if (parsed && (parsed.role === 'rep' || parsed.role === 'sales_rep' || parsed.role === 'sr_sales_rep' || parsed.role === 'manager' || parsed.role === 'admin')) {
-                    if (parsed.role === 'rep') {
-                        // Migrate legacy 'rep' role
-                        const isSr = (parsed.designation && (parsed.designation.toLowerCase().includes('sr') || parsed.designation.toLowerCase().includes('senior'))) ||
-                                     (parsed.name && parsed.name.toLowerCase().includes('rahul'));
-                        parsed.role = isSr ? 'sr_sales_rep' : 'sales_rep';
-                        parsed.role_type = parsed.role;
-                    }
-                    State.currentUser = parsed;
-                }
+    function guardAgainstLockedRep(actionDesc) {
+        if (typeof State !== 'undefined' && State.isLockedRepPortal) {
+            alert(`🔒 Dedicated Sales Rep Portal\n\nThis portal is permanently locked to ${State.currentUser?.name || 'your sales account'}.\n\nUser switching and ${actionDesc} are disabled on sales representative links.`);
+            return true;
+        }
+        return false;
+    }
+
+    window.guardAgainstLockedRep = guardAgainstLockedRep;
+
+    window.handleActiveUserPillClick = function() {
+        if (guardAgainstLockedRep('User Switching / Manager Mode')) return;
+        window.openUserLoginModal();
+    };
+
+    function getUrlQueryParam(paramName) {
+        if (typeof window !== 'undefined' && window.location) {
+            if (typeof URLSearchParams !== 'undefined') {
+                try {
+                    const params = new URLSearchParams(window.location.search);
+                    const val = params.get(paramName);
+                    if (val !== null) return val;
+                } catch (e) {}
             }
-        } catch (e) {}
+            const search = window.location.search || '';
+            const match = search.match(new RegExp('[?&]' + paramName + '=([^&#]*)', 'i'));
+            return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : null;
+        }
+        return null;
+    }
+
+    function initUserSession() {
+        // Check for dedicated Sales Rep Portal URL parameter (?rep=rep-002, ?rep_id=..., ?emp=...)
+        const repParam = getUrlQueryParam('rep') || getUrlQueryParam('rep_id') || getUrlQueryParam('emp') || getUrlQueryParam('id');
+        const adminParam = getUrlQueryParam('admin');
+
+        const allTeam = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+
+        if (repParam) {
+            const clean = repParam.trim().toLowerCase();
+            const matched = allTeam.find(m =>
+                (m.id && m.id.toLowerCase() === clean) ||
+                (m.employee_id && m.employee_id.toLowerCase() === clean) ||
+                (m.name && m.name.toLowerCase() === clean)
+            );
+
+            if (matched) {
+                const isRegularRep = matched.role_type === 'sales_rep';
+                State.currentUser = {
+                    role: matched.role_type || (isRegularRep ? 'sales_rep' : 'sr_sales_rep'),
+                    role_type: matched.role_type || (isRegularRep ? 'sales_rep' : 'sr_sales_rep'),
+                    id: matched.id,
+                    name: matched.name,
+                    employee_id: matched.employee_id || '',
+                    designation: matched.designation || (isRegularRep ? 'Sales Rep' : 'Sr. Sales Rep'),
+                    phone: matched.phone || ''
+                };
+                State.isLockedRepPortal = isRegularRep;
+                console.log(`SalesERP: Dedicated portal active for ${matched.name} (isLockedRepPortal = ${isRegularRep})`);
+            } else {
+                console.warn(`SalesERP: Rep ID "${repParam}" not found in team directory.`);
+                State.isLockedRepPortal = false;
+            }
+        } else if (adminParam === '1' || adminParam === 'true') {
+            State.isLockedRepPortal = false;
+            const srRep = allTeam.find(m => m.role_type === 'sr_sales_rep') || allTeam[0];
+            if (srRep) {
+                State.currentUser = {
+                    ...srRep,
+                    role: 'sr_sales_rep',
+                    role_type: 'sr_sales_rep'
+                };
+            }
+        } else {
+            State.isLockedRepPortal = false;
+            try {
+                const stored = localStorage.getItem(USER_SESSION_STORAGE_KEY);
+                if (stored) {
+                    const parsed = JSON.parse(stored);
+                    if (parsed && (parsed.role === 'rep' || parsed.role === 'sales_rep' || parsed.role === 'sr_sales_rep' || parsed.role === 'manager' || parsed.role === 'admin')) {
+                        if (parsed.role === 'rep') {
+                            // Migrate legacy 'rep' role
+                            const isSr = (parsed.designation && (parsed.designation.toLowerCase().includes('sr') || parsed.designation.toLowerCase().includes('senior'))) ||
+                                         (parsed.name && parsed.name.toLowerCase().includes('rahul'));
+                            parsed.role = isSr ? 'sr_sales_rep' : 'sales_rep';
+                            parsed.role_type = parsed.role;
+                        }
+                        State.currentUser = parsed;
+                    }
+                } else {
+                    const srRep = allTeam.find(m => m.role_type === 'sr_sales_rep') || allTeam[0];
+                    if (srRep) {
+                        State.currentUser = {
+                            ...srRep,
+                            role: 'sr_sales_rep',
+                            role_type: 'sr_sales_rep'
+                        };
+                    }
+                }
+            } catch (e) {}
+        }
 
         updateUserSessionUI();
         setupUserLoginModal();
         setupManagerPinModal();
         setupMisReportModal();
     }
+    window.initUserSession = initUserSession;
 
     function saveUserSession(user) {
         State.currentUser = user;
@@ -1621,6 +1712,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const isRep = isSalesRep(u);
         const isSr = isSrSalesRep(u);
         const isAdmin = isManagerOrAdmin(u);
+        const isLocked = Boolean(State.isLockedRepPortal);
 
         // 1. NAVIGATION PERMISSIONS (STRICT 2-TIER ARCHITECTURE):
         // Part 1: Admin (Sr. Sales Rep) -> Full access to all 5 navigation areas & Admin Panel
@@ -1632,9 +1724,12 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const tabBtnAdminDesk = document.getElementById('tabBtnAdminDesk');
         const tabBtnAdminMob = document.getElementById('tabBtnAdminMob');
         const headerAdminPanelBtn = document.getElementById('headerAdminPanelBtn');
+        const switchUserFormBtn = document.getElementById('switchUserFormBtn');
+        const activeUserPillBtn = document.getElementById('activeUserPillBtn');
+        const activeUserChevron = document.getElementById('activeUserChevron');
 
-        if (isRep) {
-            // SALES TEAM: Hide MIS Report, Settings, and Admin Panel buttons
+        if (isRep || isLocked) {
+            // SALES TEAM: Hide MIS Report, Settings, Admin Panel buttons & Switch User form button
             if (tabBtnMisDesk) tabBtnMisDesk.classList.add('hidden');
             if (tabBtnMisMob) tabBtnMisMob.classList.add('hidden');
             if (tabBtnSettingsDesk) tabBtnSettingsDesk.classList.add('hidden');
@@ -1642,10 +1737,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             if (tabBtnAdminDesk) tabBtnAdminDesk.classList.add('hidden');
             if (tabBtnAdminMob) tabBtnAdminMob.classList.add('hidden');
             if (headerAdminPanelBtn) headerAdminPanelBtn.classList.add('hidden');
+            if (switchUserFormBtn) switchUserFormBtn.classList.add('hidden');
 
-            // Defensive redirect: If rep is on any restricted tab, strictly redirect to Dashboard
+            // Defensive redirect: If rep is on any restricted tab, strictly redirect to New Visit
             if (State.currentTab !== 'new-visit' && State.currentTab !== 'visits') {
-                switchTab('visits');
+                switchTab('new-visit');
             }
         } else {
             // ADMIN / SR. SALES REP: Full access to all tabs
@@ -1663,6 +1759,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 headerAdminPanelBtn.className = 'px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm ring-2 ring-purple-300 transition-all';
                 headerAdminPanelBtn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4 text-amber-300"></i><span class="hidden sm:inline">Admin Panel</span><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>`;
             }
+            if (switchUserFormBtn) switchUserFormBtn.classList.remove('hidden');
         }
 
         // 2. SETTINGS VIEW PERMISSIONS:
@@ -1682,8 +1779,22 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const nameText = document.getElementById('activeUserNameText');
         const roleBadge = document.getElementById('activeUserRoleBadge');
 
+        if (activeUserPillBtn) {
+            if (isLocked) {
+                activeUserPillBtn.classList.remove('hover:bg-slate-100', 'cursor-pointer');
+                activeUserPillBtn.classList.add('cursor-default');
+                activeUserPillBtn.setAttribute('title', `Dedicated Sales Portal for ${u.name} (Locked to your account)`);
+                if (activeUserChevron) activeUserChevron.classList.add('hidden');
+            } else {
+                activeUserPillBtn.classList.add('hover:bg-slate-100', 'cursor-pointer');
+                activeUserPillBtn.classList.remove('cursor-default');
+                activeUserPillBtn.setAttribute('title', 'Switch User / Manager Mode');
+                if (activeUserChevron) activeUserChevron.classList.remove('hidden');
+            }
+        }
+
         if (avatar) {
-            if (isAdmin) {
+            if (isAdmin && !isLocked) {
                 avatar.textContent = '🛡️';
                 avatar.className = 'w-7 h-7 rounded-lg bg-purple-700 text-white flex items-center justify-center font-bold text-xs shadow-sm ring-1 ring-purple-300';
             } else {
@@ -1692,10 +1803,17 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
         }
         if (nameText) {
-            nameText.textContent = isAdmin ? (u.name ? `${u.name} (Admin)` : 'Sr. Sales Rep') : (u.name || 'Sales Rep');
+            if (isLocked) {
+                nameText.textContent = u.name || 'Sales Rep';
+            } else {
+                nameText.textContent = isAdmin ? (u.name ? `${u.name} (Admin)` : 'Sr. Sales Rep') : (u.name || 'Sales Rep');
+            }
         }
         if (roleBadge) {
-            if (isAdmin) {
+            if (isLocked) {
+                roleBadge.textContent = '🔒 Personal Portal (Private)';
+                roleBadge.className = 'inline-block text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200';
+            } else if (isAdmin) {
                 roleBadge.textContent = '👑 Admin (Sr. Sales Rep) • Full Access';
                 roleBadge.className = 'inline-block text-[10px] text-purple-700 font-bold';
             } else {
@@ -1711,31 +1829,31 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const totalLabel = document.getElementById('statTotalVisitsLabel');
 
         if (dTitle) {
-            if (isAdmin) {
-                dTitle.innerHTML = `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">👑 Admin Mode (All Reps)</span>`;
-            } else {
+            if (isLocked || isRep) {
                 dTitle.innerHTML = `My Sales Visits <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">🔒 Private Rep Mode</span>`;
+            } else {
+                dTitle.innerHTML = `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">👑 Admin Mode (All Reps)</span>`;
             }
         }
         if (dSub) {
-            if (isAdmin) {
-                dSub.textContent = 'Full visibility across all sales representatives, visits, common accounts, and team reports';
-            } else {
+            if (isLocked || isRep) {
                 dSub.textContent = `Viewing only visits and remarks for ${u.name}. Other sales reps cannot see your records.`;
+            } else {
+                dSub.textContent = 'Full visibility across all sales representatives, visits, common accounts, and team reports';
             }
         }
         if (exportBtnText) {
-            exportBtnText.textContent = hasAllFunctionsAccess(u) ? 'Download All Visits (.xlsx)' : 'Download My Visits (.xlsx)';
+            exportBtnText.textContent = hasAllFunctionsAccess(u) && !isLocked ? 'Download All Visits (.xlsx)' : 'Download My Visits (.xlsx)';
         }
         if (totalLabel) {
-            totalLabel.textContent = hasAllFunctionsAccess(u) ? 'All team visits' : 'Your recorded visits';
+            totalLabel.textContent = hasAllFunctionsAccess(u) && !isLocked ? 'All team visits' : 'Your recorded visits';
         }
 
         // 5. DASHBOARD SALES REP FILTER DROPDOWN
         const salesRepSelect = document.getElementById('filterSalesRep');
         const filterLockBadge = document.getElementById('salesRepFilterLockBadge');
         if (salesRepSelect) {
-            if (isRep) {
+            if (isRep || isLocked) {
                 salesRepSelect.value = u.id;
                 salesRepSelect.disabled = true;
                 salesRepSelect.classList.add('cursor-not-allowed', 'opacity-80', 'bg-slate-100');
@@ -1752,11 +1870,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const repLockHint = document.getElementById('salesRepLockHint');
         if (newVisitRepSelect) {
             newVisitRepSelect.value = u.id;
-            if (isRep) {
+            if (isRep || isLocked) {
                 newVisitRepSelect.disabled = true;
                 newVisitRepSelect.classList.add('bg-slate-100', 'cursor-not-allowed');
                 if (repLockHint) {
-                    repLockHint.innerHTML = `<i data-lucide="lock" class="w-3.5 h-3.5 text-blue-200"></i><span>Logged in as <strong>${escapeHtml(u.name)}</strong> (Private Mode). Visits are private to your account.</span>`;
+                    repLockHint.innerHTML = `<i data-lucide="lock" class="w-3.5 h-3.5 text-blue-200"></i><span>Personal Portal locked to <strong>${escapeHtml(u.name)}</strong>. Visits are private to your account.</span>`;
                     repLockHint.classList.remove('hidden');
                 }
             } else {
@@ -1771,6 +1889,126 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         initLucideIcons();
     }
+
+    // --------------------------------------------------------------------------
+    // DEDICATED SALES REP PORTAL LINKS SERVICE
+    // --------------------------------------------------------------------------
+    window.getRepPortalUrl = function(repId) {
+        const cleanBase = window.location.href.split('?')[0].split('#')[0];
+        return `${cleanBase}?rep=${encodeURIComponent(repId)}`;
+    };
+
+    window.copyRepPortalLink = function(repId, repName) {
+        const url = window.getRepPortalUrl(repId);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(() => {
+                alert(`📋 Dedicated Portal Link Copied!\n\nSales Rep: ${repName}\nLink: ${url}\n\nSend this unique link to ${repName}. When they open it, user-switching and admin features will be permanently disabled.`);
+            }).catch(() => {
+                window.prompt(`Copy portal link for ${repName}:`, url);
+            });
+        } else {
+            window.prompt(`Copy portal link for ${repName}:`, url);
+        }
+    };
+
+    window.shareRepLinkWhatsapp = function(repId, repName, phone) {
+        const url = window.getRepPortalUrl(repId);
+        const message = `Hello ${repName},\n\nHere is your private link for the Field Sales ERP:\n${url}\n\nPlease bookmark this link on your phone. You can log all your client visits directly here.\n\nNote: This link is unique and private to your account.`;
+        const cleanPhone = (phone || '').replace(/[^0-9]/g, '');
+        const waUrl = cleanPhone && cleanPhone.length >= 10
+            ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
+            : `https://wa.me/?text=${encodeURIComponent(message)}`;
+        window.open(waUrl, '_blank');
+    };
+
+    window.renderRepPortalLinks = function() {
+        const container = document.getElementById('repPortalLinksContainer');
+        if (!container) return;
+
+        const team = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const salesReps = team.filter(m => m.role_type === 'sales_rep');
+
+        if (salesReps.length === 0) {
+            container.innerHTML = `
+                <div class="p-6 text-center text-slate-400 text-xs bg-white rounded-xl border border-slate-200">
+                    No regular sales representatives found. Click "Add Sales Person" above to create one.
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = salesReps.map(rep => {
+            const portalUrl = window.getRepPortalUrl(rep.id);
+            const safeName = escapeHtml(rep.name);
+            const safeEmpId = escapeHtml(rep.employee_id || rep.id);
+            const safePhone = escapeHtml(rep.phone || '');
+
+            return `
+                <div class="p-3.5 bg-white rounded-xl border border-blue-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-blue-300 transition-colors">
+                    <div class="min-w-0 flex items-center space-x-3">
+                        <div class="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                            ${(rep.name || 'SR').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                <h4 class="text-xs font-bold text-slate-900 truncate">${safeName}</h4>
+                                <span class="text-[10px] font-mono bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100">${safeEmpId}</span>
+                                ${safePhone ? `<span class="text-[10px] text-slate-500 font-mono">📱 ${safePhone}</span>` : ''}
+                            </div>
+                            <div class="flex items-center gap-1 mt-1">
+                                <input type="text" readonly value="${portalUrl}" onclick="this.select()" class="text-[11px] font-mono bg-slate-50 text-blue-800 border border-slate-200 rounded-lg px-2 py-1 w-full max-w-md select-all cursor-pointer truncate" title="Click to select URL">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-1.5 shrink-0 self-end md:self-center">
+                        <button type="button" onclick="window.copyRepPortalLink('${rep.id}', '${safeName}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1 transition-colors" title="Copy dedicated link">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Link
+                        </button>
+                        <button type="button" onclick="window.shareRepLinkWhatsapp('${rep.id}', '${safeName}', '${safePhone}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1 transition-colors" title="Send via WhatsApp">
+                            <i data-lucide="send" class="w-3.5 h-3.5"></i> WhatsApp
+                        </button>
+                        <a href="${portalUrl}" target="_blank" class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Open and test rep portal in new tab">
+                            <i data-lucide="external-link" class="w-4 h-4"></i>
+                        </a>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        initLucideIcons();
+    };
+
+    window.showNewRepLinkModal = function(member) {
+        if (!member) return;
+        const modal = document.getElementById('newRepLinkModal');
+        if (!modal) return;
+
+        const portalUrl = window.getRepPortalUrl(member.id);
+        const nameElem = document.getElementById('newRepModalName');
+        const empIdElem = document.getElementById('newRepModalEmpId');
+        const urlInput = document.getElementById('newRepModalUrlInput');
+        const copyBtn = document.getElementById('newRepModalCopyBtn');
+        const waBtn = document.getElementById('newRepModalWhatsappBtn');
+        const closeBtn = document.getElementById('newRepModalCloseBtn');
+
+        if (nameElem) nameElem.textContent = member.name;
+        if (empIdElem) empIdElem.textContent = member.employee_id || member.id;
+        if (urlInput) urlInput.value = portalUrl;
+
+        if (copyBtn) {
+            copyBtn.onclick = () => window.copyRepPortalLink(member.id, member.name);
+        }
+        if (waBtn) {
+            waBtn.onclick = () => window.shareRepLinkWhatsapp(member.id, member.name, member.phone);
+        }
+        if (closeBtn) {
+            closeBtn.onclick = () => modal.classList.add('hidden');
+        }
+
+        modal.classList.remove('hidden');
+        initLucideIcons();
+    };
 
     function setupUserLoginModal() {
         const modal = document.getElementById('userLoginModal');
@@ -1821,6 +2059,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     window.openUserLoginModal = function() {
+        if (guardAgainstLockedRep('User Switching / Manager Mode')) return;
         const modal = document.getElementById('userLoginModal');
         const repList = document.getElementById('loginRepList');
         const modalActiveAvatar = document.getElementById('modalActiveAvatar');
@@ -1943,6 +2182,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     let pendingManagerAction = null;
 
     function promptManagerPin(onSuccess) {
+        if (guardAgainstLockedRep('Manager PIN Authorization')) return;
         pendingManagerAction = onSuccess;
         const modal = document.getElementById('managerPinModal');
         const pinInput = document.getElementById('quickPinInput');
@@ -3689,7 +3929,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
 
             try {
-                await addSalesTeamMember({
+                const createdMember = await addSalesTeamMember({
                     name,
                     phone,
                     email,
@@ -3700,7 +3940,13 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 });
                 toggleModal(false);
                 await loadSalesTeam();
-                alert(`Sales team member "${name}" (${roleTitle}) added successfully!`);
+                renderSalesTeamSettings();
+
+                if (roleType === 'sales_rep') {
+                    window.showNewRepLinkModal(createdMember);
+                } else {
+                    alert(`⭐ Sr. Sales Rep "${name}" (${roleTitle}) added successfully with full executive access!`);
+                }
             } catch (err) {
                 alert('Failed to add member: ' + err.message);
             }
@@ -3740,17 +3986,27 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                      <i data-lucide="user" class="w-3.5 h-3.5 text-blue-500"></i> Sales Rep
                    </span>`;
 
+            const repQuickLinkBtns = !isMemberSrRep ? `
+                <button type="button" onclick="window.copyRepPortalLink('${member.id}', '${escapeHtml(member.name)}')" class="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs" title="Copy dedicated locked portal link">
+                    <i data-lucide="link" class="w-3 h-3"></i> Link
+                </button>
+                <button type="button" onclick="window.shareRepLinkWhatsapp('${member.id}', '${escapeHtml(member.name)}', '${escapeHtml(member.phone || '')}')" class="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs" title="Send dedicated link via WhatsApp">
+                    <i data-lucide="send" class="w-3 h-3"></i> WA
+                </button>
+            ` : '';
+
             // Action buttons:
             // Admin can edit and delete anyone (including the Sr. Sales Rep)
             // Sr. Sales Rep can ONLY delete regular Sales Reps; Sr. Sales Rep row requires Admin mode (PIN: 1234) to edit
             let actionButtonHtml = '';
             if (currentUserIsExecutiveAdmin) {
                 actionButtonHtml = `
-                    <div class="flex items-center justify-end space-x-1.5">
-                        <button onclick="window.openEditMemberModal('${member.id}')" class="text-slate-500 hover:text-purple-700 p-2 rounded-xl hover:bg-purple-50 transition-colors" title="Edit Member Name & Details">
+                    <div class="flex items-center justify-end space-x-1.5 flex-wrap gap-y-1">
+                        ${repQuickLinkBtns}
+                        <button onclick="window.openEditMemberModal('${member.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-xl hover:bg-purple-50 transition-colors" title="Edit Member Name & Details">
                             <i data-lucide="pencil" class="w-4 h-4"></i>
                         </button>
-                        <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Member">
+                        <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors" title="Delete Member">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
@@ -3769,8 +4025,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     `;
                 } else {
                     actionButtonHtml = `
-                        <div class="flex items-center justify-end">
-                            <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-2 rounded-xl hover:bg-red-50 transition-colors" title="Delete Sales Rep">
+                        <div class="flex items-center justify-end space-x-1.5 flex-wrap gap-y-1">
+                            ${repQuickLinkBtns}
+                            <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors" title="Delete Sales Rep">
                                 <i data-lucide="trash-2" class="w-4 h-4"></i>
                             </button>
                         </div>
@@ -3817,6 +4074,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }).join('');
 
         container.innerHTML = html;
+        renderRepPortalLinks();
         initLucideIcons();
     }
 
@@ -4089,6 +4347,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // EXECUTIVE MASTER ADMIN PANEL CONTROLLER & LOGIC
     // --------------------------------------------------------------------------
     window.openAdminAccessPanel = function() {
+        if (guardAgainstLockedRep('Admin Control Panel')) return;
         if (isManagerOrAdmin()) {
             showAdminAccessPanelModal();
         } else {
@@ -4246,6 +4505,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
                             <!-- Admin Actions -->
                             <div class="sm:col-span-2 flex items-center justify-end space-x-1">
+                                ${!isSr ? `
+                                    <button type="button" onclick="window.copyRepPortalLink('${m.id}', '${escapeHtml(m.name)}')" class="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Copy dedicated rep portal link">
+                                        <i data-lucide="link" class="w-4 h-4"></i>
+                                    </button>
+                                    <button type="button" onclick="window.shareRepLinkWhatsapp('${m.id}', '${escapeHtml(m.name)}', '${escapeHtml(m.phone || '')}')" class="text-emerald-600 hover:text-emerald-800 p-1.5 rounded-lg hover:bg-emerald-50 transition-colors" title="Send dedicated link via WhatsApp">
+                                        <i data-lucide="send" class="w-4 h-4"></i>
+                                    </button>
+                                ` : ''}
                                 <button type="button" onclick="window.openEditMemberModal('${m.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-50 transition-colors" title="Edit ${escapeHtml(m.name)}">
                                     <i data-lucide="pencil" class="w-4 h-4"></i>
                                 </button>

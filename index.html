@@ -89,7 +89,7 @@
                 </button>
 
                 <!-- Active User Session Switcher Pill -->
-                <button id="activeUserPillBtn" onclick="window.openUserLoginModal()" class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors shadow-sm group" title="Switch User / Manager Mode">
+                <button id="activeUserPillBtn" onclick="window.handleActiveUserPillClick()" class="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors shadow-sm group" title="Switch User / Manager Mode">
                     <div id="activeUserAvatar" class="w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
                         RS
                     </div>
@@ -97,7 +97,7 @@
                         <span id="activeUserNameText" class="block text-xs font-bold text-slate-800">Rahul Sharma</span>
                         <span id="activeUserRoleBadge" class="inline-block text-[10px] text-blue-600 font-medium">Sales Rep (Private)</span>
                     </div>
-                    <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-colors"></i>
+                    <i id="activeUserChevron" data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 transition-colors"></i>
                 </button>
 
                 <button id="quickHelpBtn" class="text-slate-400 hover:text-slate-600 p-2 rounded-lg hover:bg-slate-100 transition-colors" title="Supabase & GitHub Guide">
@@ -129,7 +129,7 @@
                         <label for="salesRepSelect" class="block text-xs uppercase tracking-wider font-semibold text-blue-100">
                             Logged in Sales Person
                         </label>
-                        <button type="button" onclick="window.openUserLoginModal()" class="text-[11px] text-blue-200 hover:text-white underline font-medium flex items-center gap-1">
+                        <button id="switchUserFormBtn" type="button" onclick="window.handleActiveUserPillClick()" class="text-[11px] text-blue-200 hover:text-white underline font-medium flex items-center gap-1">
                             <i data-lucide="refresh-cw" class="w-3 h-3"></i> Switch User
                         </button>
                     </div>
@@ -750,6 +750,44 @@
 
                 <div class="divide-y divide-slate-100" id="teamMembersList">
                     <!-- Dynamically populated team rows -->
+                </div>
+            </div>
+
+            <!-- ========================================================================= -->
+            <!-- SALES REP DEDICATED PORTAL LINKS (SHARE WITH TEAM) -->
+            <!-- ========================================================================= -->
+            <div id="repPortalLinksCard" class="bg-gradient-to-r from-blue-50 via-indigo-50/40 to-blue-50 rounded-2xl p-5 border-2 border-blue-200/90 shadow-sm space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-blue-200/60 pb-3">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                            <i data-lucide="share-2" class="w-5 h-5"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <h3 class="text-base font-bold text-slate-900">Dedicated Sales Rep Portal Links</h3>
+                                <span class="text-[10px] font-bold bg-blue-600 text-white px-2.5 py-0.5 rounded-full">Share with Reps</span>
+                            </div>
+                            <p class="text-xs text-slate-600">Give each sales person their unique link. On these links, user switching and admin access are permanently disabled.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Isolation Explanation Banner -->
+                <div class="p-3 bg-white/95 rounded-xl border border-blue-200/80 text-xs text-slate-700 space-y-1.5 shadow-xs">
+                    <div class="font-bold flex items-center gap-1.5 text-blue-900">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-blue-600"></i> Part 2: Sales Team Security & Isolation Rule:
+                    </div>
+                    <ul class="text-[11px] text-slate-600 space-y-1 pl-1">
+                        <li>• <strong>No User Switching</strong>: Sales reps cannot switch users or log in as Admin.</li>
+                        <li>• <strong>Isolated Visits</strong>: Reps can only view their own visits. They cannot see other reps' data or client remarks.</li>
+                        <li>• <strong>No Admin Access</strong>: Settings, MIS reports, and Admin PIN modals are completely hidden and locked.</li>
+                        <li>• <strong>Easy Sharing</strong>: Click <strong>"Copy Link"</strong> or <strong>"WhatsApp"</strong> below to send each rep their link.</li>
+                    </ul>
+                </div>
+
+                <!-- Rep Links Dynamic Container -->
+                <div id="repPortalLinksContainer" class="space-y-2.5">
+                    <!-- Populated dynamically via renderRepPortalLinks() -->
                 </div>
             </div>
 
@@ -1781,6 +1819,49 @@
                 </button>
             </div>
 
+        </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 8: NEW SALES REP DEDICATED LINK SHARE MODAL -->
+    <!-- ========================================================================= -->
+    <div id="newRepLinkModal" class="hidden fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+        <div class="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-blue-200 space-y-4">
+            <div class="text-center space-y-1.5">
+                <div class="w-12 h-12 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xl shadow-inner">
+                    🎉
+                </div>
+                <h3 class="text-lg font-extrabold text-slate-900">Sales Representative Created!</h3>
+                <p id="newRepModalSubtitle" class="text-xs text-slate-500">Dedicated private portal link has been generated.</p>
+            </div>
+
+            <div class="p-4 bg-blue-50/70 rounded-2xl border border-blue-200 space-y-2.5">
+                <div class="flex items-center justify-between text-xs">
+                    <span class="font-bold text-slate-900" id="newRepModalName">Priya Patel</span>
+                    <span class="font-mono text-blue-700 font-bold text-[11px]" id="newRepModalEmpId">EMP-102</span>
+                </div>
+                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Dedicated Portal Link (No User Switching):</label>
+                <div class="flex items-center gap-1.5">
+                    <input type="text" id="newRepModalUrlInput" readonly class="w-full text-xs font-mono bg-white border border-slate-300 rounded-xl px-3 py-2 text-blue-800 font-semibold focus:outline-none select-all shadow-inner">
+                    <button type="button" id="newRepModalCopyBtn" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shrink-0 transition-colors flex items-center gap-1 shadow-xs">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+                    </button>
+                </div>
+            </div>
+
+            <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-xs text-amber-900 flex items-start gap-2">
+                <i data-lucide="shield-check" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5"></i>
+                <span class="text-[11px]">Share this link with your sales rep. When they open it on their phone, they are permanently locked to their account with NO user switching and NO admin access.</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 pt-1">
+                <button type="button" id="newRepModalWhatsappBtn" class="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors flex items-center justify-center gap-1.5">
+                    <i data-lucide="send" class="w-4 h-4"></i> WhatsApp Link
+                </button>
+                <button type="button" id="newRepModalCloseBtn" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors">
+                    Done / Close
+                </button>
+            </div>
         </div>
     </div>
 
