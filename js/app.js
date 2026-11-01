@@ -1751,15 +1751,21 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const newVisitRepSelect = document.getElementById('salesRepSelect');
         const repLockHint = document.getElementById('salesRepLockHint');
         if (newVisitRepSelect) {
+            newVisitRepSelect.value = u.id;
             if (isRep) {
-                newVisitRepSelect.value = u.id;
                 newVisitRepSelect.disabled = true;
                 newVisitRepSelect.classList.add('bg-slate-100', 'cursor-not-allowed');
-                if (repLockHint) repLockHint.classList.remove('hidden');
+                if (repLockHint) {
+                    repLockHint.innerHTML = `<i data-lucide="lock" class="w-3.5 h-3.5 text-blue-200"></i><span>Logged in as <strong>${escapeHtml(u.name)}</strong> (Private Mode). Visits are private to your account.</span>`;
+                    repLockHint.classList.remove('hidden');
+                }
             } else {
                 newVisitRepSelect.disabled = false;
                 newVisitRepSelect.classList.remove('bg-slate-100', 'cursor-not-allowed');
-                if (repLockHint) repLockHint.classList.add('hidden');
+                if (repLockHint) {
+                    repLockHint.innerHTML = `<i data-lucide="shield-check" class="w-3.5 h-3.5 text-amber-300"></i><span><strong>Admin Mode</strong>: Recording visit as <strong>${escapeHtml(u.name)}</strong> (or select another rep from dropdown).</span>`;
+                    repLockHint.classList.remove('hidden');
+                }
             }
         }
 
@@ -2423,7 +2429,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 opt.textContent = `${m.name} (${m.employee_id ? m.employee_id + ' • ' : ''}${m.designation || 'Sales'})`;
                 repSelect.appendChild(opt);
             });
-            if (currentVal) repSelect.value = currentVal;
+            if (currentVal) {
+                repSelect.value = currentVal;
+            } else if (State.currentUser && State.currentUser.id) {
+                repSelect.value = State.currentUser.id;
+            }
         }
 
         if (filterRepSelect) {
@@ -4449,9 +4459,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         setupAdminAccessPanel();
         setupLightbox();
 
+        await loadSalesTeam();
         initUserSession();
         updateConnectionIndicator();
-        await loadSalesTeam();
         await loadAndRenderVisits();
 
         // Auto-detect live GPS location on page launch so Option B is pre-populated
