@@ -496,7 +496,7 @@
         const target = local.find(m => m.id === id);
 
         // Security check: Sr. Sales Rep can only delete regular Sales Reps
-        if (target && target.role_type === 'sr_sales_rep' && isSrSalesRep()) {
+        if (target && target.role_type === 'sr_sales_rep' && !isExecutiveAdmin()) {
             throw new Error('Permission Denied: Sr. Sales Reps cannot delete another Sr. Sales Rep. Only Admin can perform this action.');
         }
 
@@ -520,7 +520,7 @@
         const existing = local[index];
 
         // Security check: If target is a Sr. Sales Rep, ONLY Admin can edit!
-        if (existing.role_type === 'sr_sales_rep' && !isManagerOrAdmin()) {
+        if (existing.role_type === 'sr_sales_rep' && !isExecutiveAdmin()) {
             throw new Error('Permission Denied: Only Admin can edit the name and details of a Sr. Sales Rep.');
         }
 
@@ -948,6 +948,7 @@
 
         return filtered;
     }
+    window.getClientVisits = getClientVisits;
 
     async function deleteClientVisit(id) {
         if (!id) return false;
@@ -1525,10 +1526,16 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         return user.role === 'sr_sales_rep' || user.role_type === 'sr_sales_rep';
     }
 
-    function isManagerOrAdmin(u) {
+    function isExecutiveAdmin(u) {
         const user = u || (typeof State !== 'undefined' ? State.currentUser : null);
         if (!user) return false;
         return user.role === 'manager' || user.role === 'admin' || user.role_type === 'manager' || user.role_type === 'admin';
+    }
+
+    function isManagerOrAdmin(u) {
+        const user = u || (typeof State !== 'undefined' ? State.currentUser : null);
+        if (!user) return false;
+        return isExecutiveAdmin(user) || isSrSalesRep(user);
     }
 
     function hasAllFunctionsAccess(u) {
@@ -1611,27 +1618,51 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     function updateUserSessionUI() {
         const u = State.currentUser;
-        const isAdmin = isManagerOrAdmin(u);
-        const isSr = isSrSalesRep(u);
         const isRep = isSalesRep(u);
+        const isSr = isSrSalesRep(u);
+        const isAdmin = isManagerOrAdmin(u);
 
-        // 1. SETTINGS NAVIGATION PERMISSION:
-        // Regular sales reps MUST NOT be given access to settings
+        // 1. NAVIGATION PERMISSIONS (STRICT 2-TIER ARCHITECTURE):
+        // Part 1: Admin (Sr. Sales Rep) -> Full access to all 5 navigation areas & Admin Panel
+        // Part 2: Sales Team (regular Sales Reps) -> STRICTLY ONLY New Visit & Dashboard
+        const tabBtnMisDesk = document.getElementById('tabBtnMisDesk');
+        const tabBtnMisMob = document.getElementById('tabBtnMisMob');
         const tabBtnSettingsDesk = document.getElementById('tabBtnSettingsDesk');
         const tabBtnSettingsMob = document.getElementById('tabBtnSettingsMob');
+        const tabBtnAdminDesk = document.getElementById('tabBtnAdminDesk');
+        const tabBtnAdminMob = document.getElementById('tabBtnAdminMob');
+        const headerAdminPanelBtn = document.getElementById('headerAdminPanelBtn');
 
         if (isRep) {
+            // SALES TEAM: Hide MIS Report, Settings, and Admin Panel buttons
+            if (tabBtnMisDesk) tabBtnMisDesk.classList.add('hidden');
+            if (tabBtnMisMob) tabBtnMisMob.classList.add('hidden');
             if (tabBtnSettingsDesk) tabBtnSettingsDesk.classList.add('hidden');
             if (tabBtnSettingsMob) tabBtnSettingsMob.classList.add('hidden');
+            if (tabBtnAdminDesk) tabBtnAdminDesk.classList.add('hidden');
+            if (tabBtnAdminMob) tabBtnAdminMob.classList.add('hidden');
+            if (headerAdminPanelBtn) headerAdminPanelBtn.classList.add('hidden');
 
-            // If user is currently on Settings, strictly redirect out to visits
-            if (State.currentTab === 'settings') {
+            // Defensive redirect: If rep is on any restricted tab, strictly redirect to Dashboard
+            if (State.currentTab !== 'new-visit' && State.currentTab !== 'visits') {
                 switchTab('visits');
             }
         } else {
-            // Sr. Sales Rep & Admin have access to Settings
+            // ADMIN / SR. SALES REP: Full access to all tabs
+            if (tabBtnMisDesk) tabBtnMisDesk.classList.remove('hidden');
+            if (tabBtnMisMob) tabBtnMisMob.classList.remove('hidden');
             if (tabBtnSettingsDesk) tabBtnSettingsDesk.classList.remove('hidden');
             if (tabBtnSettingsMob) tabBtnSettingsMob.classList.remove('hidden');
+            if (tabBtnAdminDesk) {
+                tabBtnAdminDesk.classList.remove('hidden');
+                tabBtnAdminDesk.classList.add('bg-purple-100', 'text-purple-900');
+            }
+            if (tabBtnAdminMob) tabBtnAdminMob.classList.remove('hidden');
+            if (headerAdminPanelBtn) {
+                headerAdminPanelBtn.classList.remove('hidden');
+                headerAdminPanelBtn.className = 'px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm ring-2 ring-purple-300 transition-all';
+                headerAdminPanelBtn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4 text-amber-300"></i><span class="hidden sm:inline">Admin Panel</span><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>`;
+            }
         }
 
         // 2. SETTINGS VIEW PERMISSIONS:
@@ -1654,9 +1685,6 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         if (avatar) {
             if (isAdmin) {
                 avatar.textContent = '🛡️';
-                avatar.className = 'w-7 h-7 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs shadow-sm';
-            } else if (isSr) {
-                avatar.textContent = (u.name || 'SR').slice(0, 2).toUpperCase();
                 avatar.className = 'w-7 h-7 rounded-lg bg-purple-700 text-white flex items-center justify-center font-bold text-xs shadow-sm ring-1 ring-purple-300';
             } else {
                 avatar.textContent = (u.name || 'SR').slice(0, 2).toUpperCase();
@@ -1664,40 +1692,15 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
         }
         if (nameText) {
-            nameText.textContent = isAdmin ? 'Manager / Admin' : (u.name || 'Sales Rep');
+            nameText.textContent = isAdmin ? (u.name ? `${u.name} (Admin)` : 'Sr. Sales Rep') : (u.name || 'Sales Rep');
         }
         if (roleBadge) {
             if (isAdmin) {
-                roleBadge.textContent = '👑 Admin / Manager (Full Access)';
-                roleBadge.className = 'inline-block text-[10px] text-purple-700 font-bold';
-            } else if (isSr) {
-                roleBadge.textContent = '⭐ Sr. Sales Rep (All Functions Access)';
+                roleBadge.textContent = '👑 Admin (Sr. Sales Rep) • Full Access';
                 roleBadge.className = 'inline-block text-[10px] text-purple-700 font-bold';
             } else {
                 roleBadge.textContent = `👤 ${u.designation || 'Sales Rep'} (Private Mode)`;
                 roleBadge.className = 'inline-block text-[10px] text-blue-600 font-medium';
-            }
-        }
-
-        // 3B. ADMIN PANEL BUTTONS & ACTIVE INDICATORS
-        const headerAdminPanelBtn = document.getElementById('headerAdminPanelBtn');
-        const tabBtnAdminDesk = document.getElementById('tabBtnAdminDesk');
-
-        if (isAdmin) {
-            if (headerAdminPanelBtn) {
-                headerAdminPanelBtn.className = 'px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-700 to-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm ring-2 ring-purple-300 transition-all';
-                headerAdminPanelBtn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4 text-amber-300"></i><span class="hidden sm:inline">Admin Panel</span><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>`;
-            }
-            if (tabBtnAdminDesk) {
-                tabBtnAdminDesk.classList.add('bg-purple-100', 'text-purple-900');
-            }
-        } else {
-            if (headerAdminPanelBtn) {
-                headerAdminPanelBtn.className = 'px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 active:scale-95 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all';
-                headerAdminPanelBtn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4"></i><span class="hidden sm:inline">Admin Panel</span>`;
-            }
-            if (tabBtnAdminDesk) {
-                tabBtnAdminDesk.classList.remove('bg-purple-100', 'text-purple-900');
             }
         }
 
@@ -1709,18 +1712,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         if (dTitle) {
             if (isAdmin) {
-                dTitle.innerHTML = `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">🛡️ Admin Mode</span>`;
-            } else if (isSr) {
-                dTitle.innerHTML = `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">⭐ Sr. Sales Rep Mode</span>`;
+                dTitle.innerHTML = `Sales Visits Overview <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 border border-purple-200">👑 Admin Mode (All Reps)</span>`;
             } else {
                 dTitle.innerHTML = `My Sales Visits <span id="privacyModeBadge" class="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">🔒 Private Rep Mode</span>`;
             }
         }
         if (dSub) {
             if (isAdmin) {
-                dSub.textContent = 'Monitor all field rep activity, cross-rep visits, and deal statuses';
-            } else if (isSr) {
-                dSub.textContent = `Full visibility across all sales representatives, visits, common accounts, and team reports`;
+                dSub.textContent = 'Full visibility across all sales representatives, visits, common accounts, and team reports';
             } else {
                 dSub.textContent = `Viewing only visits and remarks for ${u.name}. Other sales reps cannot see your records.`;
             }
@@ -2001,6 +2000,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // MIS REPORT MODAL & RENDERER
     // --------------------------------------------------------------------------
     window.openMisReportModal = function(period = 'ALL') {
+        if (isSalesRep()) {
+            alert('⛔ Access Restricted: MIS Report is only accessible to Admin (Sr. Sales Rep). Sales team members have access to New Visit and Dashboard only.');
+            return;
+        }
         const modal = document.getElementById('misReportModal');
         if (!modal) return;
 
@@ -2254,9 +2257,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     function switchTab(tabKey) {
-        // Protect Settings tab: Sales Reps are STRICTLY NOT ALLOWED access
-        if (tabKey === 'settings' && isSalesRep()) {
-            alert('⛔ Access Restricted: Settings tab is not accessible to Sales Representatives. Only Sr. Sales Reps and Managers have access to Settings.');
+        // Enforce 2-tier role permissions: Sales Reps ONLY have access to New Visit and Dashboard
+        if (isSalesRep() && tabKey !== 'new-visit' && tabKey !== 'visits') {
+            alert('⛔ Access Restricted: Sales team members only have access to New Visit and Dashboard. Settings and Admin tools are restricted to Admin (Sr. Sales Rep).');
             return;
         }
 
@@ -2362,6 +2365,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         document.getElementById('quickHelpBtn')?.addEventListener('click', (e) => {
             e.preventDefault();
+            if (isSalesRep()) {
+                alert('ℹ️ Sales Rep Mode: You have access to New Visit and Dashboard.\n\nSettings & cloud database configuration are managed by Admin (Sr. Sales Rep).');
+                return;
+            }
             switchTab('settings');
         });
     }
@@ -2997,10 +3004,17 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
             // 1. Validate Sales Representative
             const repSelect = document.getElementById('salesRepSelect');
-            const selectedRepId = repSelect.value;
+            let selectedRepId = repSelect.value;
             const selectedOption = repSelect.options[repSelect.selectedIndex];
-            const selectedRepName = selectedOption ? selectedOption.dataset.name || selectedOption.textContent : 'Field Rep';
-            const selectedEmpId = selectedOption ? selectedOption.dataset.empid || '' : '';
+            let selectedRepName = selectedOption ? selectedOption.dataset.name || selectedOption.textContent : 'Field Rep';
+            let selectedEmpId = selectedOption ? selectedOption.dataset.empid || '' : '';
+
+            // Enforce Sales Rep ID & Name integrity (prevents submitting on behalf of other reps)
+            if (isSalesRep() && State.currentUser) {
+                selectedRepId = State.currentUser.id || selectedRepId;
+                selectedRepName = State.currentUser.name || selectedRepName;
+                selectedEmpId = State.currentUser.employee_id || selectedEmpId;
+            }
 
             if (!selectedRepId) {
                 alert('Please select your Sales Representative name at the top of the form.');
@@ -3423,7 +3437,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                                 <span>🏢 Common Account (Cross-Rep Client)</span>
                             </div>
                             <span class="text-[11px] text-purple-800 font-medium">
-                                ${otherRepsText ? `Also visited by: <strong>${escapeHtml(otherRepsText)}</strong>` : 'Shared across multiple sales reps'}
+                                ${isSalesRep() ? 'Shared corporate account • Contact Admin for cross-rep coordination' : (otherRepsText ? `Also visited by: <strong>${escapeHtml(otherRepsText)}</strong>` : 'Shared across multiple sales reps')}
                             </span>
                         </div>
                     ` : ''}
@@ -3703,7 +3717,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
 
         const currentUserIsSrRep = isSrSalesRep();
-        const currentUserIsAdmin = isManagerOrAdmin();
+        const currentUserIsExecutiveAdmin = isExecutiveAdmin();
 
         const html = State.salesTeam.map(member => {
             const isMemberSrRep = member.role_type === 'sr_sales_rep';
@@ -3718,9 +3732,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
             // Action buttons:
             // Admin can edit and delete anyone (including the Sr. Sales Rep)
-            // Sr. Sales Rep can ONLY delete regular Sales Reps; Sr. Sales Rep row requires Admin mode to edit
+            // Sr. Sales Rep can ONLY delete regular Sales Reps; Sr. Sales Rep row requires Admin mode (PIN: 1234) to edit
             let actionButtonHtml = '';
-            if (currentUserIsAdmin) {
+            if (currentUserIsExecutiveAdmin) {
                 actionButtonHtml = `
                     <div class="flex items-center justify-end space-x-1.5">
                         <button onclick="window.openEditMemberModal('${member.id}')" class="text-slate-500 hover:text-purple-700 p-2 rounded-xl hover:bg-purple-50 transition-colors" title="Edit Member Name & Details">
@@ -3826,8 +3840,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             return;
         }
 
-        // Security check: If target is Sr. Sales Rep and user is not Admin, prompt for Admin PIN
-        if (member.role_type === 'sr_sales_rep' && !isManagerOrAdmin()) {
+        // Security check: If target is Sr. Sales Rep and user is not Executive Admin, prompt for Admin PIN
+        if (member.role_type === 'sr_sales_rep' && !isExecutiveAdmin()) {
             promptManagerPin(() => {
                 updateUserSessionUI();
                 window.openEditMemberModal(memberId);
