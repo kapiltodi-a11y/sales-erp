@@ -382,8 +382,8 @@
         },
         {
             id: 'rep-002',
-            name: 'Priya Patel',
-            email: 'priya.patel@example.com',
+            name: 'Supriya Yadav',
+            email: 'supriya.yadav@example.com',
             phone: '+91 98765 43211',
             employee_id: 'EMP-102',
             role_type: 'sales_rep',
@@ -393,8 +393,8 @@
         },
         {
             id: 'rep-003',
-            name: 'Amit Verma',
-            email: 'amit.verma@example.com',
+            name: 'Kalyani Mundada',
+            email: 'kalyani.mundada@example.com',
             phone: '+91 98765 43212',
             employee_id: 'EMP-103',
             role_type: 'sales_rep',
@@ -410,7 +410,7 @@
             if (stored) {
                 const parsed = JSON.parse(stored);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    // Ensure role_type is populated for existing stored items & migrate default Sr. Rep to Kapil Todi
+                    // Ensure role_type is populated & migrate demo names to Kapil Todi, Supriya Yadav & Kalyani Mundada
                     let modified = false;
                     parsed.forEach(m => {
                         if (m.id === 'rep-001' && (m.name === 'Rahul Sharma' || !m.name)) {
@@ -420,6 +420,22 @@
                             m.employee_id = 'EMP-101';
                             m.role_type = 'sr_sales_rep';
                             m.designation = 'Sr. Sales Rep';
+                            modified = true;
+                        }
+                        if (m.id === 'rep-002' || (m.name && m.name.toLowerCase().includes('priya'))) {
+                            m.name = 'Supriya Yadav';
+                            m.email = 'supriya.yadav@example.com';
+                            m.employee_id = 'EMP-102';
+                            m.role_type = 'sales_rep';
+                            m.designation = 'Sales Rep';
+                            modified = true;
+                        }
+                        if (m.id === 'rep-003' || (m.name && m.name.toLowerCase().includes('amit'))) {
+                            m.name = 'Kalyani Mundada';
+                            m.email = 'kalyani.mundada@example.com';
+                            m.employee_id = 'EMP-103';
+                            m.role_type = 'sales_rep';
+                            m.designation = 'Sales Rep';
                             modified = true;
                         }
                         if (!m.role_type) {
@@ -668,7 +684,7 @@
         {
             id: 'visit-102',
             sales_rep_id: 'rep-002',
-            sales_rep_name: 'Priya Patel',
+            sales_rep_name: 'Supriya Yadav',
             employee_id: 'EMP-102',
             business_name: 'Apex Infotech Solutions',
             client_name: 'Apex Infotech Solutions',
@@ -696,7 +712,7 @@
         {
             id: 'visit-103',
             sales_rep_id: 'rep-001',
-            sales_rep_name: 'Rahul Sharma',
+            sales_rep_name: 'Kapil Todi',
             employee_id: 'EMP-101',
             business_name: 'Sunrise Logistics Hub',
             client_name: 'Sunrise Logistics Hub',
@@ -724,7 +740,7 @@
         {
             id: 'visit-104',
             sales_rep_id: 'rep-002',
-            sales_rep_name: 'Priya Patel',
+            sales_rep_name: 'Supriya Yadav',
             employee_id: 'EMP-102',
             business_name: 'Nexus Retail Enterprises',
             client_name: 'Nexus Retail Enterprises',
@@ -761,6 +777,14 @@
                     parsed.forEach(v => {
                         if (v.sales_rep_id === 'rep-001' && (v.sales_rep_name === 'Rahul Sharma' || !v.sales_rep_name)) {
                             v.sales_rep_name = 'Kapil Todi';
+                            mod = true;
+                        }
+                        if (v.sales_rep_id === 'rep-002' || (v.sales_rep_name && v.sales_rep_name.toLowerCase().includes('priya'))) {
+                            v.sales_rep_name = 'Supriya Yadav';
+                            mod = true;
+                        }
+                        if (v.sales_rep_id === 'rep-003' || (v.sales_rep_name && v.sales_rep_name.toLowerCase().includes('amit'))) {
+                            v.sales_rep_name = 'Kalyani Mundada';
                             mod = true;
                         }
                     });
@@ -1719,10 +1743,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         // rep-003 -> 2nd regular sales rep
         // rep-004 -> 3rd regular sales rep
         if (regularReps.length > 0) {
-            if (clean === 'rep-002' || clean === 'rep-2' || clean === '2' || clean === '002' || clean === 'emp-102' || clean === '102' || clean.includes('priya')) {
+            if (clean === 'rep-002' || clean === 'rep-2' || clean === '2' || clean === '002' || clean === 'emp-102' || clean === '102' || clean.includes('priya') || clean.includes('supriya')) {
                 return regularReps[0];
             }
-            if (clean === 'rep-003' || clean === 'rep-3' || clean === '3' || clean === '003' || clean === 'emp-103' || clean === '103' || clean.includes('amit')) {
+            if (clean === 'rep-003' || clean === 'rep-3' || clean === '3' || clean === '003' || clean === 'emp-103' || clean === '103' || clean.includes('amit') || clean.includes('kalyani')) {
                 return regularReps[1] || regularReps[0];
             }
             if (clean === 'rep-004' || clean === 'rep-4' || clean === '4' || clean === '004' || clean === 'emp-104' || clean === '104') {
@@ -1791,10 +1815,32 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 if (stored) {
                     const parsed = JSON.parse(stored);
                     if (parsed && (parsed.role === 'rep' || parsed.role === 'sales_rep' || parsed.role === 'sr_sales_rep' || parsed.role === 'manager' || parsed.role === 'admin')) {
+                        if (parsed.id === 'rep-001' || (parsed.name && parsed.name.toLowerCase().includes('rahul'))) {
+                            parsed.name = 'Kapil Todi';
+                            parsed.phone = '+91 97696 61978';
+                            parsed.role = 'sr_sales_rep';
+                            parsed.role_type = 'sr_sales_rep';
+                            parsed.designation = 'Sr. Sales Rep';
+                            localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
+                        } else if (parsed.id === 'rep-002' || (parsed.name && parsed.name.toLowerCase().includes('priya'))) {
+                            parsed.name = 'Supriya Yadav';
+                            parsed.employee_id = 'EMP-102';
+                            parsed.role = 'sales_rep';
+                            parsed.role_type = 'sales_rep';
+                            parsed.designation = 'Sales Rep';
+                            localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
+                        } else if (parsed.id === 'rep-003' || (parsed.name && parsed.name.toLowerCase().includes('amit'))) {
+                            parsed.name = 'Kalyani Mundada';
+                            parsed.employee_id = 'EMP-103';
+                            parsed.role = 'sales_rep';
+                            parsed.role_type = 'sales_rep';
+                            parsed.designation = 'Sales Rep';
+                            localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
+                        }
                         if (parsed.role === 'rep') {
                             // Migrate legacy 'rep' role
                             const isSr = (parsed.designation && (parsed.designation.toLowerCase().includes('sr') || parsed.designation.toLowerCase().includes('senior'))) ||
-                                         (parsed.name && parsed.name.toLowerCase().includes('rahul'));
+                                         (parsed.name && (parsed.name.toLowerCase().includes('rahul') || parsed.name.toLowerCase().includes('kapil')));
                             parsed.role = isSr ? 'sr_sales_rep' : 'sales_rep';
                             parsed.role_type = parsed.role;
                         }

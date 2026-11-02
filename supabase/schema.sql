@@ -109,9 +109,9 @@ CREATE POLICY "Public access to client visits"
 -- 7. Insert Initial Sample Sales Team Members
 INSERT INTO public.sales_reps (name, email, phone, employee_id, role_type, designation, is_active)
 VALUES 
-    ('Rahul Sharma', 'rahul.sharma@example.com', '+91 98765 43210', 'EMP-101', 'sr_sales_rep', 'Sr. Sales Rep', true),
-    ('Priya Patel', 'priya.patel@example.com', '+91 98765 43211', 'EMP-102', 'sales_rep', 'Sales Rep', true),
-    ('Amit Verma', 'amit.verma@example.com', '+91 98765 43212', 'EMP-103', 'sales_rep', 'Sales Rep', true)
+    ('Kapil Todi', 'kapil.todi@gmail.com', '+91 97696 61978', 'EMP-101', 'sr_sales_rep', 'Sr. Sales Rep', true),
+    ('Supriya Yadav', 'supriya.yadav@example.com', '+91 98765 43211', 'EMP-102', 'sales_rep', 'Sales Rep', true),
+    ('Kalyani Mundada', 'kalyani.mundada@example.com', '+91 98765 43212', 'EMP-103', 'sales_rep', 'Sales Rep', true)
 ON CONFLICT DO NOTHING;
 
 -- 8. Storage Bucket Setup
