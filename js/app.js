@@ -371,9 +371,9 @@
     const DEFAULT_TEAM_MEMBERS = [
         {
             id: 'rep-001',
-            name: 'Rahul Sharma',
-            email: 'rahul.sharma@example.com',
-            phone: '+91 98765 43210',
+            name: 'Kapil Todi',
+            email: 'kapil.todi@gmail.com',
+            phone: '+91 97696 61978',
             employee_id: 'EMP-101',
             role_type: 'sr_sales_rep',
             designation: 'Sr. Sales Rep',
@@ -410,12 +410,21 @@
             if (stored) {
                 const parsed = JSON.parse(stored);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    // Ensure role_type is populated for existing stored items
+                    // Ensure role_type is populated for existing stored items & migrate default Sr. Rep to Kapil Todi
                     let modified = false;
                     parsed.forEach(m => {
+                        if (m.id === 'rep-001' && (m.name === 'Rahul Sharma' || !m.name)) {
+                            m.name = 'Kapil Todi';
+                            m.email = 'kapil.todi@gmail.com';
+                            m.phone = '+91 97696 61978';
+                            m.employee_id = 'EMP-101';
+                            m.role_type = 'sr_sales_rep';
+                            m.designation = 'Sr. Sales Rep';
+                            modified = true;
+                        }
                         if (!m.role_type) {
                             const des = (m.designation || '').toLowerCase();
-                            if (des.includes('sr') || des.includes('senior') || (m.name && m.name.toLowerCase().includes('rahul'))) {
+                            if (des.includes('sr') || des.includes('senior') || (m.name && (m.name.toLowerCase().includes('rahul') || m.name.toLowerCase().includes('kapil')))) {
                                 m.role_type = 'sr_sales_rep';
                                 m.designation = m.designation || 'Sr. Sales Rep';
                             } else {
@@ -631,7 +640,7 @@
         {
             id: 'visit-101',
             sales_rep_id: 'rep-001',
-            sales_rep_name: 'Rahul Sharma',
+            sales_rep_name: 'Kapil Todi',
             employee_id: 'EMP-101',
             business_name: 'Nexus Retail Enterprises',
             client_name: 'Nexus Retail Enterprises',
@@ -745,7 +754,20 @@
     function getLocalVisits() {
         try {
             const stored = localStorage.getItem(VISITS_STORAGE_KEY);
-            if (stored) return JSON.parse(stored);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed)) {
+                    let mod = false;
+                    parsed.forEach(v => {
+                        if (v.sales_rep_id === 'rep-001' && (v.sales_rep_name === 'Rahul Sharma' || !v.sales_rep_name)) {
+                            v.sales_rep_name = 'Kapil Todi';
+                            mod = true;
+                        }
+                    });
+                    if (mod) saveLocalVisits(parsed);
+                    return parsed;
+                }
+            }
         } catch (e) {}
         localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(DEFAULT_SAMPLE_VISITS));
         return [...DEFAULT_SAMPLE_VISITS];
@@ -1569,10 +1591,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             role: 'sr_sales_rep', // 'sales_rep', 'sr_sales_rep', or 'manager'
             role_type: 'sr_sales_rep',
             id: 'rep-001',
-            name: 'Rahul Sharma',
+            name: 'Kapil Todi',
             employee_id: 'EMP-101',
             designation: 'Sr. Sales Rep',
-            phone: '+91 98765 43210'
+            phone: '+91 97696 61978'
         },
         salesTeam: [],
         visits: [],
