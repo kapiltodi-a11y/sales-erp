@@ -1918,9 +1918,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     window.unlockAdminModeNow = function() {
-        if (typeof State !== 'undefined' && State.isLockedRepPortal) {
-            alert(`🔒 Dedicated Sales Rep Portal\n\nThis portal is permanently locked to ${State.currentUser?.name || 'Sales Representative'}.\n\nUser switching and Admin Mode are disabled on sales representative links.`);
-            return;
+        if (typeof State !== 'undefined') {
+            State.isLockedRepPortal = false;
         }
         document.getElementById('managerPinModal')?.classList.add('hidden');
         document.getElementById('userLoginModal')?.classList.add('hidden');
@@ -2019,7 +2018,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // --------------------------------------------------------------------------
     function guardAgainstLockedRep(actionDesc) {
         if (typeof State !== 'undefined' && State.isLockedRepPortal) {
-            alert(`🔒 Dedicated Sales Rep Portal\n\nThis portal is permanently locked to ${State.currentUser?.name || 'your sales account'}.\n\nUser switching and ${actionDesc} are disabled on sales representative links.`);
+            const adminUrl = window.location.origin + window.location.pathname;
+            const goToAdmin = confirm(`🔒 Dedicated Sales Rep Portal\n\nThis portal is permanently locked to ${State.currentUser?.name || 'your sales account'}.\n\nUser switching and ${actionDesc} are disabled on sales representative links.\n\nWould you like to open the Sr. Sales Rep Admin Portal?`);
+            if (goToAdmin) {
+                window.location.href = adminUrl;
+            }
             return true;
         }
         return false;
@@ -2057,6 +2060,37 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const cleanDigits = clean.replace(/\D/g, '');
 
         const regularReps = team.filter(m => m.role_type === 'sales_rep');
+
+        // Priority Tier 0: Direct match for Kapil Todi / Sr. Sales Rep / Admin
+        if (
+            clean === 'kapil' ||
+            clean === 'kapiltodi' ||
+            clean === 'kapil todi' ||
+            clean === 'admin' ||
+            clean === 'sr' ||
+            clean === 'sr_sales_rep' ||
+            clean === 'sr-sales-rep' ||
+            clean === 'sr rep' ||
+            clean === 'sr-rep' ||
+            clean === 'rep-001' ||
+            clean === 'rep-1' ||
+            clean === 'rep1' ||
+            clean === 'emp-101' ||
+            clean === '001' ||
+            clean === '101'
+        ) {
+            const found = team.find(m => (m.name && m.name.toLowerCase().includes('kapil')) || m.role_type === 'sr_sales_rep' || m.id === 'rep-001' || m.employee_id === 'EMP-101');
+            return {
+                id: found?.id || 'rep-001',
+                name: 'Kapil Todi',
+                employee_id: found?.employee_id || 'EMP-101',
+                role: 'sr_sales_rep',
+                role_type: 'sr_sales_rep',
+                designation: 'Sr. Sales Rep',
+                phone: found?.phone || '+91 97696 61978',
+                email: found?.email || 'kapil@example.com'
+            };
+        }
 
         // Priority Tier 0: Direct match for Rep 1 / Supriya Yadav
         if (
@@ -2162,10 +2196,39 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         // Check for dedicated Sales Rep Portal URL parameter (?rep=rep-002, ?rep_id=..., ?emp=...)
         const repParam = getUrlQueryParam('rep') || getUrlQueryParam('rep_id') || getUrlQueryParam('emp') || getUrlQueryParam('id');
         const adminParam = getUrlQueryParam('admin');
+        const roleParam = getUrlQueryParam('role');
 
         const allTeam = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
 
-        if (repParam) {
+        const cleanRep = (repParam || '').trim().toLowerCase();
+        const isExplicitAdminQuery = adminParam === '1' || adminParam === 'true' || 
+                                     roleParam === 'admin' || roleParam === 'sr_sales_rep' || roleParam === 'sr' ||
+                                     cleanRep === 'admin' || cleanRep === 'kapil' || cleanRep === 'kapiltodi' || 
+                                     cleanRep === 'kapil todi' || cleanRep === 'sr' || cleanRep === 'sr_sales_rep' || 
+                                     cleanRep === 'sr-sales-rep' || cleanRep === 'rep-001' || cleanRep === 'emp-101' || 
+                                     cleanRep === '001' || cleanRep === '101';
+
+        if (isExplicitAdminQuery) {
+            // Explicit Admin query (e.g. ?rep=Kapil, ?admin=1, ?role=admin)
+            State.isLockedRepPortal = false;
+            State.repNotFoundNotice = null;
+            const srRep = allTeam.find(m => m.role_type === 'sr_sales_rep' || (m.name && m.name.toLowerCase().includes('kapil'))) || allTeam[0];
+            State.currentUser = {
+                id: srRep?.id || 'rep-001',
+                name: 'Kapil Todi',
+                employee_id: srRep?.employee_id || 'EMP-101',
+                role: 'sr_sales_rep',
+                role_type: 'sr_sales_rep',
+                designation: 'Sr. Sales Rep',
+                phone: srRep?.phone || '+91 97696 61978',
+                email: srRep?.email || 'kapil@example.com'
+            };
+            try {
+                localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(State.currentUser));
+            } catch (e) {}
+            console.log('SalesERP: Explicit Sr. Sales Rep Admin link activated for Kapil Todi');
+        } else if (repParam) {
+            // Dedicated regular sales rep link (?rep=Supriya, ?rep=Kalyani)
             const matched = resolveRepFromQuery(repParam, allTeam);
 
             if (matched) {
@@ -2201,67 +2264,45 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 };
                 State.repNotFoundNotice = null;
             }
-        } else if (adminParam === '1' || adminParam === 'true') {
-            State.isLockedRepPortal = false;
-            State.repNotFoundNotice = null;
-            const srRep = allTeam.find(m => m.role_type === 'sr_sales_rep') || allTeam[0];
-            if (srRep) {
-                State.currentUser = {
-                    ...srRep,
-                    role: 'sr_sales_rep',
-                    role_type: 'sr_sales_rep'
-                };
-            }
         } else {
+            // BASE URL WITHOUT ANY QUERY PARAMETERS:
+            // https://kapiltodi-a11y.github.io/sales-erp/
+            // This is the default Admin / Sr. Sales Rep portal for Kapil Todi.
             State.isLockedRepPortal = false;
             State.repNotFoundNotice = null;
+            let userToSet = null;
+
             try {
                 const stored = localStorage.getItem(USER_SESSION_STORAGE_KEY);
                 if (stored) {
                     const parsed = JSON.parse(stored);
-                    if (parsed && (parsed.role === 'rep' || parsed.role === 'sales_rep' || parsed.role === 'sr_sales_rep' || parsed.role === 'manager' || parsed.role === 'admin')) {
-                        const sName = sanitizeRepName(parsed.name, parsed.employee_id, parsed.id);
-                        parsed.name = sName;
-                        if (sName === 'Kapil Todi') {
-                            parsed.id = parsed.id || 'rep-001';
-                            parsed.employee_id = 'EMP-101';
-                            parsed.phone = parsed.phone || '+91 97696 61978';
-                            parsed.role = 'sr_sales_rep';
-                            parsed.role_type = 'sr_sales_rep';
-                            parsed.designation = 'Sr. Sales Rep';
-                        } else if (sName === 'Supriya Yadav') {
-                            parsed.id = parsed.id || 'rep-002';
-                            parsed.employee_id = 'EMP-102';
-                            parsed.phone = parsed.phone || '+91 98765 43211';
-                            parsed.role = 'sales_rep';
-                            parsed.role_type = 'sales_rep';
-                            parsed.designation = 'Sales Rep';
-                        } else if (sName === 'Kalyani Mundada') {
-                            parsed.id = parsed.id || 'rep-003';
-                            parsed.employee_id = 'EMP-103';
-                            parsed.phone = parsed.phone || '+91 98765 43212';
-                            parsed.role = 'sales_rep';
-                            parsed.role_type = 'sales_rep';
-                            parsed.designation = 'Sales Rep';
-                        }
-                        if (parsed.role === 'rep') {
-                            parsed.role = 'sales_rep';
-                            parsed.role_type = 'sales_rep';
-                        }
-                        localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
-                        State.currentUser = parsed;
-                    }
-                } else {
-                    const srRep = allTeam.find(m => m.role_type === 'sr_sales_rep') || allTeam[0];
-                    if (srRep) {
-                        State.currentUser = {
-                            ...srRep,
-                            role: 'sr_sales_rep',
-                            role_type: 'sr_sales_rep'
-                        };
+                    // If user was previously in Manager / Director mode via PIN 1234, preserve it
+                    if (parsed && (parsed.role === 'manager' || parsed.id === 'admin')) {
+                        userToSet = parsed;
                     }
                 }
             } catch (e) {}
+
+            if (!userToSet) {
+                // Default unconditionally to Kapil Todi (Sr. Sales Rep Admin)
+                const srRep = allTeam.find(m => m.role_type === 'sr_sales_rep' || (m.name && m.name.toLowerCase().includes('kapil'))) || allTeam[0];
+                userToSet = {
+                    id: srRep?.id || 'rep-001',
+                    name: 'Kapil Todi',
+                    employee_id: srRep?.employee_id || 'EMP-101',
+                    role: 'sr_sales_rep',
+                    role_type: 'sr_sales_rep',
+                    designation: 'Sr. Sales Rep',
+                    phone: srRep?.phone || '+91 97696 61978',
+                    email: srRep?.email || 'kapil@example.com'
+                };
+            }
+
+            State.currentUser = userToSet;
+            try {
+                localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(userToSet));
+            } catch (e) {}
+            console.log(`SalesERP: Base URL initialized as ${userToSet.name} (${userToSet.designation || userToSet.role})`);
         }
 
         updateUserSessionUI();
@@ -2304,8 +2345,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const viewMisReportBtn = document.getElementById('viewMisReportBtn');
         const repNoticeBanner = document.getElementById('repPortalNoticeBanner');
 
-        if (isRep || isLocked) {
-            // SALES TEAM: Hide MIS Report, Settings, Admin Panel buttons & Switch User form button
+        if (isLocked) {
+            // DEDICATED LOCKED SALES REP PORTAL (?rep=Supriya, ?rep=Kalyani):
+            // Strictly hide MIS Report, Settings, Admin Panel buttons & Switch User form button
             if (tabBtnMisDesk) tabBtnMisDesk.classList.add('hidden');
             if (tabBtnMisMob) tabBtnMisMob.classList.add('hidden');
             if (tabBtnSettingsDesk) tabBtnSettingsDesk.classList.add('hidden');
@@ -2320,8 +2362,28 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             if (State.currentTab !== 'new-visit' && State.currentTab !== 'visits') {
                 switchTab('new-visit');
             }
+        } else if (isRep) {
+            // Unlocked portal viewing as sales rep (e.g. testing or previewing on admin device):
+            if (tabBtnMisDesk) tabBtnMisDesk.classList.add('hidden');
+            if (tabBtnMisMob) tabBtnMisMob.classList.add('hidden');
+            if (tabBtnSettingsDesk) tabBtnSettingsDesk.classList.add('hidden');
+            if (tabBtnSettingsMob) tabBtnSettingsMob.classList.add('hidden');
+            if (tabBtnAdminDesk) tabBtnAdminDesk.classList.add('hidden');
+            if (tabBtnAdminMob) tabBtnAdminMob.classList.add('hidden');
+            if (viewMisReportBtn) viewMisReportBtn.classList.add('hidden');
+            // Keep Admin Panel button visible so admin can immediately return to Admin mode!
+            if (headerAdminPanelBtn) {
+                headerAdminPanelBtn.classList.remove('hidden');
+                headerAdminPanelBtn.className = 'px-3 py-1.5 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm ring-2 ring-purple-300 transition-all';
+                headerAdminPanelBtn.innerHTML = `<i data-lucide="shield-check" class="w-4 h-4 text-amber-300"></i><span class="hidden sm:inline">Admin Panel</span>`;
+            }
+            if (switchUserFormBtn) switchUserFormBtn.classList.remove('hidden');
+
+            if (State.currentTab !== 'new-visit' && State.currentTab !== 'visits') {
+                switchTab('new-visit');
+            }
         } else {
-            // ADMIN / SR. SALES REP: Full access to all tabs
+            // ADMIN / SR. SALES REP (Kapil Todi) / MANAGER: Full access to all tabs
             if (viewMisReportBtn) viewMisReportBtn.classList.remove('hidden');
             if (tabBtnMisDesk) tabBtnMisDesk.classList.remove('hidden');
             if (tabBtnMisMob) tabBtnMisMob.classList.remove('hidden');
@@ -2496,7 +2558,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                         </div>
                         <span class="font-semibold text-emerald-950">Personal Portal locked to <strong>${escapeHtml(cleanName)}</strong> (${escapeHtml(u.employee_id || (cleanName === 'Supriya Yadav' ? 'EMP-102' : (cleanName === 'Kalyani Mundada' ? 'EMP-103' : 'Sales Rep')))})</span>
                     </div>
-                    <span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full shrink-0 border border-emerald-200">Private Link Active</span>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">Private Link Active</span>
+                        <a href="${window.location.origin}${window.location.pathname}" class="text-[10px] text-emerald-800 hover:text-emerald-950 font-bold underline ml-1" title="Go to Sr. Sales Rep Admin Portal">Admin Login</a>
+                    </div>
                 `;
                 repNoticeBanner.classList.remove('hidden');
             } else {
@@ -2519,7 +2584,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const rName = (rep.name || '').toLowerCase();
             const rId = (rep.id || '').toLowerCase();
             const rEmp = (rep.employee_id || '').toLowerCase();
-            if (rId === 'rep-002' || rEmp === 'emp-102' || rName.includes('supriya') || rName.includes('priya') || rName.includes('sales rep 1') || rName.includes('rep 1')) {
+            if (rId === 'rep-001' || rEmp === 'emp-101' || rName.includes('kapil') || rep.role_type === 'sr_sales_rep') {
+                return cleanBase;
+            } else if (rId === 'rep-002' || rEmp === 'emp-102' || rName.includes('supriya') || rName.includes('priya') || rName.includes('sales rep 1') || rName.includes('rep 1')) {
                 slug = 'Supriya';
             } else if (rId === 'rep-003' || rEmp === 'emp-103' || rName.includes('kalyani') || rName.includes('amit') || rName.includes('sales rep 2') || rName.includes('rep 2')) {
                 slug = 'Kalyani';
@@ -2530,13 +2597,17 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
         } else if (typeof rep === 'string') {
             const clean = rep.toLowerCase();
-            if (clean === 'rep-002' || clean.includes('supriya') || clean === 'emp-102' || clean.includes('sales rep 1') || clean.includes('rep 1') || clean === '1') {
+            if (clean === 'rep-001' || clean === 'emp-101' || clean.includes('kapil') || clean === 'admin' || clean === 'sr') {
+                return cleanBase;
+            } else if (clean === 'rep-002' || clean.includes('supriya') || clean === 'emp-102' || clean.includes('sales rep 1') || clean.includes('rep 1') || clean === '1') {
                 slug = 'Supriya';
             } else if (clean === 'rep-003' || clean.includes('kalyani') || clean === 'emp-103' || clean.includes('sales rep 2') || clean.includes('rep 2') || clean === '2') {
                 slug = 'Kalyani';
             } else {
                 const member = team.find(m => m.id === rep || m.employee_id === rep || (m.name && m.name.toLowerCase().includes(clean)));
-                if (member && member.name) {
+                if (member && (member.role_type === 'sr_sales_rep' || (member.name && member.name.toLowerCase().includes('kapil')))) {
+                    return cleanBase;
+                } else if (member && member.name) {
                     slug = sanitizeRepName(member.name, member.employee_id, member.id).split(/\s+/)[0];
                 } else {
                     slug = rep;
@@ -2566,9 +2637,15 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     window.copyRepPortalLink = function(repId, repName) {
         const url = window.getRepPortalUrl(repId);
+        const isSr = repId === 'rep-001' || (repName && (repName.toLowerCase().includes('kapil') || repName.toLowerCase().includes('admin')));
+        const titleMsg = isSr ? 'Admin Portal Link Copied' : 'Dedicated Portal Link Copied';
+        const noteMsg = isSr
+            ? 'This is the main administrative link with full access to all ERP features (Visits, MIS Reports, Settings, Admin Panel).'
+            : `Send this unique link to ${repName}. When they open it, user-switching and admin features will be permanently disabled.`;
+
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(url).then(() => {
-                alert(`📋 Dedicated Portal Link Copied!\n\nSales Rep: ${repName}\nLink: ${url}\n\nSend this unique link to ${repName}. When they open it, user-switching and admin features will be permanently disabled.`);
+                alert(`📋 ${titleMsg}!\n\nUser: ${repName}\nLink: ${url}\n\n${noteMsg}`);
             }).catch(() => {
                 window.prompt(`Copy portal link for ${repName}:`, url);
             });
@@ -2579,7 +2656,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     window.shareRepLinkWhatsapp = function(repId, repName, phone) {
         const url = window.getRepPortalUrl(repId);
-        const message = `Hello ${repName},\n\nHere is your private link for the Field Sales ERP:\n${url}\n\nPlease bookmark this link on your phone. You can log all your client visits directly here.\n\nNote: This link is unique and private to your account.`;
+        const isSr = repId === 'rep-001' || (repName && (repName.toLowerCase().includes('kapil') || repName.toLowerCase().includes('admin')));
+        const message = isSr
+            ? `Hello ${repName},\n\nHere is the Admin Portal link for Field Sales ERP:\n${url}\n\nFull administrative access enabled.`
+            : `Hello ${repName},\n\nHere is your private link for the Field Sales ERP:\n${url}\n\nPlease bookmark this link on your phone. You can log all your client visits directly here.\n\nNote: This link is unique and private to your account.`;
+
         const cleanPhone = (phone || '').replace(/[^0-9]/g, '');
         const waUrl = cleanPhone && cleanPhone.length >= 10
             ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
@@ -2593,57 +2674,101 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         const rawTeam = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
         const team = deduplicateAndCleanTeam(rawTeam);
+        const cleanBaseUrl = window.location.href.split('?')[0].split('#')[0];
+
+        const srMember = team.find(m => m.role_type === 'sr_sales_rep' || (m.name && m.name.toLowerCase().includes('kapil'))) || {
+            id: 'rep-001',
+            name: 'Kapil Todi',
+            employee_id: 'EMP-101',
+            designation: 'Sr. Sales Rep',
+            phone: '+91 97696 61978'
+        };
         const salesReps = team.filter(m => m.role_type === 'sales_rep');
 
+        const srName = escapeHtml(srMember.name || 'Kapil Todi');
+        const srEmpId = escapeHtml(srMember.employee_id || 'EMP-101');
+        const srPhone = escapeHtml(srMember.phone || '+91 97696 61978');
+
+        const srCardHtml = `
+            <div class="p-3.5 bg-gradient-to-r from-purple-50 via-indigo-50/50 to-purple-50 rounded-xl border-2 border-purple-300 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 mb-3">
+                <div class="min-w-0 flex items-center space-x-3">
+                    <div class="w-9 h-9 rounded-xl bg-purple-700 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs ring-1 ring-purple-300">
+                        🛡️
+                    </div>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                            <h4 class="text-xs font-bold text-purple-950 truncate">${srName}</h4>
+                            <span class="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-0.2 rounded-full border border-purple-200">👑 Sr. Sales Rep (Admin)</span>
+                            <span class="text-[10px] font-mono bg-purple-50 text-purple-700 px-1.5 py-0.2 rounded border border-purple-100">${srEmpId}</span>
+                            ${srPhone ? `<span class="text-[10px] text-slate-500 font-mono">📱 ${srPhone}</span>` : ''}
+                        </div>
+                        <div class="flex items-center gap-1 mt-1">
+                            <input type="text" readonly value="${cleanBaseUrl}" onclick="this.select()" class="text-[11px] font-mono bg-white text-purple-900 border border-purple-200 rounded-lg px-2 py-1 w-full max-w-md select-all cursor-pointer truncate font-semibold" title="Click to select Admin Portal URL">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1.5 shrink-0 self-end md:self-center">
+                    <button type="button" onclick="window.copyRepPortalLink('${srMember.id || 'rep-001'}', '${srName}')" class="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-bold shadow-xs flex items-center gap-1 transition-colors" title="Copy Sr. Sales Rep Admin Link">
+                        <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Admin Link
+                    </button>
+                    <a href="${cleanBaseUrl}" target="_blank" class="p-1.5 text-purple-600 hover:text-purple-900 hover:bg-purple-100 rounded-lg transition-colors" title="Open Admin Portal in new tab">
+                        <i data-lucide="external-link" class="w-4 h-4"></i>
+                    </a>
+                </div>
+            </div>
+        `;
+
+        let repCardsHtml = '';
         if (salesReps.length === 0) {
-            container.innerHTML = `
+            repCardsHtml = `
                 <div class="p-6 text-center text-slate-400 text-xs bg-white rounded-xl border border-slate-200">
                     No regular sales representatives found. Click "Add Sales Person" above to create one.
                 </div>
             `;
-            return;
+        } else {
+            repCardsHtml = salesReps.map(rep => {
+                const cleanRepName = sanitizeRepName(rep.name, rep.employee_id, rep.id);
+                const portalUrl = window.getRepPortalUrl(cleanRepName);
+                const safeName = escapeHtml(cleanRepName);
+                const safeEmpId = escapeHtml(rep.employee_id || (cleanRepName === 'Supriya Yadav' ? 'EMP-102' : (cleanRepName === 'Kalyani Mundada' ? 'EMP-103' : rep.id)));
+                const safePhone = escapeHtml(rep.phone || (cleanRepName === 'Supriya Yadav' ? '+91 98765 43211' : (cleanRepName === 'Kalyani Mundada' ? '+91 98765 43212' : '')));
+
+                return `
+                    <div class="p-3.5 bg-white rounded-xl border border-blue-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-blue-300 transition-colors">
+                        <div class="min-w-0 flex items-center space-x-3">
+                            <div class="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                ${(cleanRepName || 'SR').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div class="min-w-0">
+                                <div class="flex items-center gap-1.5 flex-wrap">
+                                    <h4 class="text-xs font-bold text-slate-900 truncate">${safeName}</h4>
+                                    <span class="text-[10px] font-mono bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100">${safeEmpId}</span>
+                                    ${safePhone ? `<span class="text-[10px] text-slate-500 font-mono">📱 ${safePhone}</span>` : ''}
+                                </div>
+                                <div class="flex items-center gap-1 mt-1">
+                                    <input type="text" readonly value="${portalUrl}" onclick="this.select()" class="text-[11px] font-mono bg-slate-50 text-blue-800 border border-slate-200 rounded-lg px-2 py-1 w-full max-w-md select-all cursor-pointer truncate" title="Click to select URL">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-1.5 shrink-0 self-end md:self-center">
+                            <button type="button" onclick="window.copyRepPortalLink('${rep.id}', '${safeName}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1 transition-colors" title="Copy dedicated link">
+                                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Link
+                            </button>
+                            <button type="button" onclick="window.shareRepLinkWhatsapp('${rep.id}', '${safeName}', '${safePhone}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1 transition-colors" title="Send via WhatsApp">
+                                <i data-lucide="send" class="w-3.5 h-3.5"></i> WhatsApp
+                            </button>
+                            <a href="${portalUrl}" target="_blank" class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Open and test rep portal in new tab">
+                                <i data-lucide="external-link" class="w-4 h-4"></i>
+                            </a>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
-        container.innerHTML = salesReps.map(rep => {
-            const cleanRepName = sanitizeRepName(rep.name, rep.employee_id, rep.id);
-            const portalUrl = window.getRepPortalUrl(cleanRepName);
-            const safeName = escapeHtml(cleanRepName);
-            const safeEmpId = escapeHtml(rep.employee_id || (cleanRepName === 'Supriya Yadav' ? 'EMP-102' : (cleanRepName === 'Kalyani Mundada' ? 'EMP-103' : rep.id)));
-            const safePhone = escapeHtml(rep.phone || (cleanRepName === 'Supriya Yadav' ? '+91 98765 43211' : (cleanRepName === 'Kalyani Mundada' ? '+91 98765 43212' : '')));
-
-            return `
-                <div class="p-3.5 bg-white rounded-xl border border-blue-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-blue-300 transition-colors">
-                    <div class="min-w-0 flex items-center space-x-3">
-                        <div class="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                            ${(cleanRepName || 'SR').slice(0, 2).toUpperCase()}
-                        </div>
-                        <div class="min-w-0">
-                            <div class="flex items-center gap-1.5 flex-wrap">
-                                <h4 class="text-xs font-bold text-slate-900 truncate">${safeName}</h4>
-                                <span class="text-[10px] font-mono bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded border border-blue-100">${safeEmpId}</span>
-                                ${safePhone ? `<span class="text-[10px] text-slate-500 font-mono">📱 ${safePhone}</span>` : ''}
-                            </div>
-                            <div class="flex items-center gap-1 mt-1">
-                                <input type="text" readonly value="${portalUrl}" onclick="this.select()" class="text-[11px] font-mono bg-slate-50 text-blue-800 border border-slate-200 rounded-lg px-2 py-1 w-full max-w-md select-all cursor-pointer truncate" title="Click to select URL">
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex items-center gap-1.5 shrink-0 self-end md:self-center">
-                        <button type="button" onclick="window.copyRepPortalLink('${rep.id}', '${safeName}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1 transition-colors" title="Copy dedicated link">
-                            <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy Link
-                        </button>
-                        <button type="button" onclick="window.shareRepLinkWhatsapp('${rep.id}', '${safeName}', '${safePhone}')" class="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1 transition-colors" title="Send via WhatsApp">
-                            <i data-lucide="send" class="w-3.5 h-3.5"></i> WhatsApp
-                        </button>
-                        <a href="${portalUrl}" target="_blank" class="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Open and test rep portal in new tab">
-                            <i data-lucide="external-link" class="w-4 h-4"></i>
-                        </a>
-                    </div>
-                </div>
-            `;
-        }).join('');
-
+        container.innerHTML = srCardHtml + repCardsHtml;
         initLucideIcons();
     };
 
