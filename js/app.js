@@ -404,54 +404,180 @@
         }
     ];
 
+    function sanitizeRepName(name, empId = '', repId = '') {
+        const str = String(name || '').trim();
+        const lower = str.toLowerCase();
+        const idLower = String(repId || '').toLowerCase();
+        const empLower = String(empId || '').toLowerCase();
+
+        // 1. Kapil Todi (Sr. Sales Rep)
+        if (
+            idLower === 'rep-001' ||
+            empLower === 'emp-101' ||
+            lower.includes('rahul') ||
+            lower.includes('kapil') ||
+            lower === 'sr. sales rep' ||
+            lower === 'sr sales rep'
+        ) {
+            return 'Kapil Todi';
+        }
+
+        // 2. Supriya Yadav (Sales Rep 1)
+        if (
+            idLower === 'rep-002' ||
+            empLower === 'emp-102' ||
+            lower.includes('supriya') ||
+            lower.includes('priya') ||
+            lower.includes('sales rep 1') ||
+            lower.includes('sales-rep-1') ||
+            lower.includes('sales_rep_1') ||
+            lower.includes('sales person 1') ||
+            lower.includes('rep 1') ||
+            lower.includes('rep-1') ||
+            lower.includes('rep_1') ||
+            lower === '1' ||
+            lower === 'sales rep' ||
+            lower === 'sales representative'
+        ) {
+            return 'Supriya Yadav';
+        }
+
+        // 3. Kalyani Mundada (Sales Rep 2)
+        if (
+            idLower === 'rep-003' ||
+            empLower === 'emp-103' ||
+            lower.includes('kalyani') ||
+            lower.includes('amit') ||
+            lower.includes('sales rep 2') ||
+            lower.includes('sales-rep-2') ||
+            lower.includes('sales_rep_2') ||
+            lower.includes('sales person 2') ||
+            lower.includes('rep 2') ||
+            lower.includes('rep-2') ||
+            lower.includes('rep_2') ||
+            lower === '2'
+        ) {
+            return 'Kalyani Mundada';
+        }
+
+        return str || 'Supriya Yadav';
+    }
+    window.sanitizeRepName = sanitizeRepName;
+
+    function sanitizeTeamMember(m, index = 0) {
+        if (!m || typeof m !== 'object') return m;
+        const name = (m.name || '').trim();
+        const lower = name.toLowerCase();
+        const idLower = (m.id || '').toLowerCase();
+        const empLower = (m.employee_id || '').toLowerCase();
+
+        if (idLower === 'rep-001' || empLower === 'emp-101' || lower.includes('kapil') || lower.includes('rahul') || m.role_type === 'sr_sales_rep') {
+            m.name = 'Kapil Todi';
+            m.email = m.email && !m.email.includes('example.com') ? m.email : 'kapil.todi@gmail.com';
+            m.phone = m.phone || '+91 97696 61978';
+            m.employee_id = 'EMP-101';
+            m.role_type = 'sr_sales_rep';
+            m.designation = 'Sr. Sales Rep';
+            return m;
+        }
+
+        if (
+            idLower === 'rep-002' ||
+            empLower === 'emp-102' ||
+            lower.includes('supriya') ||
+            lower.includes('priya') ||
+            lower.includes('sales rep 1') ||
+            lower.includes('sales-rep-1') ||
+            lower.includes('sales person 1') ||
+            lower.includes('rep 1') ||
+            lower.includes('rep-1') ||
+            lower === '1' ||
+            lower === 'sales rep' ||
+            lower === 'sales representative' ||
+            index === 1
+        ) {
+            m.name = 'Supriya Yadav';
+            m.email = 'supriya.yadav@example.com';
+            m.phone = m.phone || '+91 98765 43211';
+            m.employee_id = 'EMP-102';
+            m.role_type = 'sales_rep';
+            m.designation = 'Sales Rep';
+            return m;
+        }
+
+        if (
+            idLower === 'rep-003' ||
+            empLower === 'emp-103' ||
+            lower.includes('kalyani') ||
+            lower.includes('amit') ||
+            lower.includes('sales rep 2') ||
+            lower.includes('sales-rep-2') ||
+            lower.includes('sales person 2') ||
+            lower.includes('rep 2') ||
+            lower.includes('rep-2') ||
+            lower === '2' ||
+            index === 2
+        ) {
+            m.name = 'Kalyani Mundada';
+            m.email = 'kalyani.mundada@example.com';
+            m.phone = m.phone || '+91 98765 43212';
+            m.employee_id = 'EMP-103';
+            m.role_type = 'sales_rep';
+            m.designation = 'Sales Rep';
+            return m;
+        }
+
+        m.name = sanitizeRepName(m.name, m.employee_id, m.id);
+        return m;
+    }
+
+    function deduplicateAndCleanTeam(team) {
+        if (!Array.isArray(team) || team.length === 0) return [...DEFAULT_TEAM_MEMBERS];
+
+        const regularReps = team.filter(m => m.role_type === 'sales_rep');
+        const srReps = team.filter(m => m.role_type === 'sr_sales_rep');
+
+        const cleaned = [];
+
+        // 1. Always ensure Kapil Todi as Sr. Sales Rep
+        const sr = srReps.find(m => m.id === 'rep-001' || (m.name && m.name.toLowerCase().includes('kapil'))) || team[0] || DEFAULT_TEAM_MEMBERS[0];
+        cleaned.push(sanitizeTeamMember({ ...sr }, 0));
+
+        // 2. Always ensure Supriya Yadav as Sales Rep 1
+        const rep1 = regularReps.find(m => {
+            const l = (m.name || '').toLowerCase();
+            return m.id === 'rep-002' || m.employee_id === 'EMP-102' || l.includes('supriya') || l.includes('priya') || l.includes('sales rep 1') || l.includes('rep 1');
+        }) || regularReps[0] || DEFAULT_TEAM_MEMBERS[1];
+        cleaned.push(sanitizeTeamMember({ ...rep1 }, 1));
+
+        // 3. Always ensure Kalyani Mundada as Sales Rep 2
+        const rep2 = regularReps.find(m => {
+            const l = (m.name || '').toLowerCase();
+            return m.id === 'rep-003' || m.employee_id === 'EMP-103' || l.includes('kalyani') || l.includes('amit') || l.includes('sales rep 2') || l.includes('rep 2');
+        }) || (regularReps[1] && regularReps[1] !== rep1 ? regularReps[1] : DEFAULT_TEAM_MEMBERS[2]);
+        cleaned.push(sanitizeTeamMember({ ...rep2 }, 2));
+
+        // 4. Any other custom-created team members beyond the core 3
+        team.forEach(m => {
+            const cleanName = sanitizeRepName(m.name, m.employee_id, m.id);
+            if (!cleaned.some(c => c.name.toLowerCase() === cleanName.toLowerCase())) {
+                cleaned.push({ ...m, name: cleanName });
+            }
+        });
+
+        return cleaned;
+    }
+    window.deduplicateAndCleanTeam = deduplicateAndCleanTeam;
+
     function getLocalTeam() {
         try {
             const stored = localStorage.getItem(TEAM_STORAGE_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
                 if (Array.isArray(parsed) && parsed.length > 0) {
-                    // Ensure role_type is populated & migrate demo names to Kapil Todi, Supriya Yadav & Kalyani Mundada
-                    let modified = false;
-                    parsed.forEach(m => {
-                        if (m.id === 'rep-001' && (m.name === 'Rahul Sharma' || !m.name)) {
-                            m.name = 'Kapil Todi';
-                            m.email = 'kapil.todi@gmail.com';
-                            m.phone = '+91 97696 61978';
-                            m.employee_id = 'EMP-101';
-                            m.role_type = 'sr_sales_rep';
-                            m.designation = 'Sr. Sales Rep';
-                            modified = true;
-                        }
-                        if (m.id === 'rep-002' || (m.name && m.name.toLowerCase().includes('priya'))) {
-                            m.name = 'Supriya Yadav';
-                            m.email = 'supriya.yadav@example.com';
-                            m.employee_id = 'EMP-102';
-                            m.role_type = 'sales_rep';
-                            m.designation = 'Sales Rep';
-                            modified = true;
-                        }
-                        if (m.id === 'rep-003' || (m.name && m.name.toLowerCase().includes('amit'))) {
-                            m.name = 'Kalyani Mundada';
-                            m.email = 'kalyani.mundada@example.com';
-                            m.employee_id = 'EMP-103';
-                            m.role_type = 'sales_rep';
-                            m.designation = 'Sales Rep';
-                            modified = true;
-                        }
-                        if (!m.role_type) {
-                            const des = (m.designation || '').toLowerCase();
-                            if (des.includes('sr') || des.includes('senior') || (m.name && (m.name.toLowerCase().includes('rahul') || m.name.toLowerCase().includes('kapil')))) {
-                                m.role_type = 'sr_sales_rep';
-                                m.designation = m.designation || 'Sr. Sales Rep';
-                            } else {
-                                m.role_type = 'sales_rep';
-                                m.designation = m.designation || 'Sales Rep';
-                            }
-                            modified = true;
-                        }
-                    });
-                    if (modified) saveLocalTeam(parsed);
-                    return parsed;
+                    const cleaned = deduplicateAndCleanTeam(parsed);
+                    saveLocalTeam(cleaned);
+                    return cleaned;
                 }
             }
         } catch (e) {}
@@ -460,7 +586,10 @@
     }
 
     function saveLocalTeam(team) {
-        try { localStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(team)); } catch (e) {}
+        try {
+            const cleaned = deduplicateAndCleanTeam(team);
+            localStorage.setItem(TEAM_STORAGE_KEY, JSON.stringify(cleaned));
+        } catch (e) {}
     }
 
     async function getSalesTeam(activeOnly = false) {
@@ -471,10 +600,22 @@
                 if (activeOnly) query = query.eq('is_active', true);
                 const { data, error } = await query;
                 if (!error && Array.isArray(data)) {
-                    // Retain any locally-created members that are not in Supabase yet
+                    // Automatically fix & rename any 'Sales Rep 1' / 'Sales Rep 2' records in Supabase
+                    data.forEach(async (orig) => {
+                        const sanitizedName = sanitizeRepName(orig.name, orig.employee_id, orig.id);
+                        if (sanitizedName !== orig.name) {
+                            try {
+                                await supabase.from('sales_reps').update({
+                                    name: sanitizedName,
+                                    employee_id: orig.employee_id === 'EMP-101' ? 'EMP-101' : (sanitizedName === 'Supriya Yadav' ? 'EMP-102' : (sanitizedName === 'Kalyani Mundada' ? 'EMP-103' : orig.employee_id))
+                                }).eq('id', orig.id);
+                            } catch (e) {}
+                        }
+                    });
+
                     const local = getLocalTeam();
                     const localOnly = local.filter(l => l.id && l.id.startsWith('rep-') && !data.some(d => d.id === l.id || (d.name && l.name && d.name.toLowerCase() === l.name.toLowerCase())));
-                    const merged = [...data, ...localOnly];
+                    const merged = deduplicateAndCleanTeam([...data, ...localOnly]);
                     saveLocalTeam(merged);
                     return activeOnly ? merged.filter(m => m.is_active) : merged;
                 }
@@ -823,6 +964,29 @@
         }
     ];
 
+    function sanitizeVisitRecord(v) {
+        if (!v || typeof v !== 'object') return v;
+        const repName = (v.sales_rep_name || '').trim();
+        const vId = (v.sales_rep_id || '').toLowerCase();
+        const vEmp = (v.employee_id || '').toLowerCase();
+
+        const cleanName = sanitizeRepName(repName, vEmp, vId);
+        v.sales_rep_name = cleanName;
+
+        if (cleanName === 'Kapil Todi') {
+            v.sales_rep_id = v.sales_rep_id || 'rep-001';
+            v.employee_id = v.employee_id || 'EMP-101';
+        } else if (cleanName === 'Supriya Yadav') {
+            v.sales_rep_id = v.sales_rep_id || 'rep-002';
+            v.employee_id = v.employee_id || 'EMP-102';
+        } else if (cleanName === 'Kalyani Mundada') {
+            v.sales_rep_id = v.sales_rep_id || 'rep-003';
+            v.employee_id = v.employee_id || 'EMP-103';
+        }
+        return v;
+    }
+    window.sanitizeVisitRecord = sanitizeVisitRecord;
+
     function getLocalVisits() {
         try {
             const stored = localStorage.getItem(VISITS_STORAGE_KEY);
@@ -831,24 +995,23 @@
                 if (Array.isArray(parsed)) {
                     let mod = false;
                     parsed.forEach(v => {
-                        if (v.sales_rep_id === 'rep-001' && (v.sales_rep_name === 'Rahul Sharma' || !v.sales_rep_name)) {
-                            v.sales_rep_name = 'Kapil Todi';
-                            mod = true;
-                        }
-                        if (v.sales_rep_id === 'rep-002' || (v.sales_rep_name && v.sales_rep_name.toLowerCase().includes('priya'))) {
-                            v.sales_rep_name = 'Supriya Yadav';
-                            mod = true;
-                        }
-                        if (v.sales_rep_id === 'rep-003' || (v.sales_rep_name && v.sales_rep_name.toLowerCase().includes('amit'))) {
-                            v.sales_rep_name = 'Kalyani Mundada';
-                            mod = true;
-                        }
+                        const oldName = v.sales_rep_name;
+                        sanitizeVisitRecord(v);
+                        if (v.sales_rep_name !== oldName) mod = true;
                     });
 
+                    // Ensure Supriya has visits in local storage if missing
+                    const hasSupriya = parsed.some(v => v.sales_rep_name === 'Supriya Yadav');
+                    if (!hasSupriya) {
+                        const supriyaSamples = DEFAULT_SAMPLE_VISITS.filter(v => v.sales_rep_id === 'rep-002').map(v => sanitizeVisitRecord({ ...v, sales_rep_name: 'Supriya Yadav' }));
+                        parsed.push(...supriyaSamples);
+                        mod = true;
+                    }
+
                     // Ensure Kalyani has visits in local storage if missing
-                    const hasKalyani = parsed.some(v => v.sales_rep_id === 'rep-003' || (v.sales_rep_name && v.sales_rep_name.toLowerCase().includes('kalyani')));
+                    const hasKalyani = parsed.some(v => v.sales_rep_name === 'Kalyani Mundada');
                     if (!hasKalyani) {
-                        const kalyaniSamples = DEFAULT_SAMPLE_VISITS.filter(v => v.sales_rep_id === 'rep-003');
+                        const kalyaniSamples = DEFAULT_SAMPLE_VISITS.filter(v => v.sales_rep_id === 'rep-003').map(v => sanitizeVisitRecord({ ...v, sales_rep_name: 'Kalyani Mundada' }));
                         parsed.push(...kalyaniSamples);
                         mod = true;
                     }
@@ -858,8 +1021,9 @@
                 }
             }
         } catch (e) {}
-        localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(DEFAULT_SAMPLE_VISITS));
-        return [...DEFAULT_SAMPLE_VISITS];
+        const defaultClean = DEFAULT_SAMPLE_VISITS.map(v => sanitizeVisitRecord({ ...v }));
+        localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(defaultClean));
+        return defaultClean;
     }
 
     function saveLocalVisits(visits) {
@@ -981,6 +1145,18 @@
             try {
                 const { data, error } = await supabase.from('client_visits').select('*').order('visit_time', { ascending: false });
                 if (!error && Array.isArray(data)) {
+                    data.forEach(v => {
+                        const oldName = v.sales_rep_name;
+                        sanitizeVisitRecord(v);
+                        if (oldName !== v.sales_rep_name && supabase) {
+                            try {
+                                supabase.from('client_visits').update({
+                                    sales_rep_name: v.sales_rep_name,
+                                    employee_id: v.employee_id
+                                }).eq('id', v.id);
+                            } catch (err) {}
+                        }
+                    });
                     allVisits = data;
                     saveLocalVisits(data);
                 } else {
@@ -1882,6 +2058,46 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         const regularReps = team.filter(m => m.role_type === 'sales_rep');
 
+        // Priority Tier 0: Direct match for Rep 1 / Supriya Yadav
+        if (
+            clean === 'supriya' ||
+            clean === 'supriya yadav' ||
+            clean === 'priya' ||
+            clean === 'sales rep 1' ||
+            clean === 'sales-rep-1' ||
+            clean === 'sales_rep_1' ||
+            clean === 'rep 1' ||
+            clean === 'rep-1' ||
+            clean === 'rep1' ||
+            clean === '1' ||
+            clean === '002' ||
+            clean === 'rep-002' ||
+            clean === 'emp-102'
+        ) {
+            const found = team.find(m => (m.name && m.name.toLowerCase().includes('supriya')) || m.id === 'rep-002' || m.employee_id === 'EMP-102') || regularReps[0];
+            if (found) return { ...found, name: 'Supriya Yadav', employee_id: 'EMP-102', role_type: 'sales_rep', designation: 'Sales Rep' };
+        }
+
+        // Priority Tier 0: Direct match for Rep 2 / Kalyani Mundada
+        if (
+            clean === 'kalyani' ||
+            clean === 'kalyani mundada' ||
+            clean === 'amit' ||
+            clean === 'sales rep 2' ||
+            clean === 'sales-rep-2' ||
+            clean === 'sales_rep_2' ||
+            clean === 'rep 2' ||
+            clean === 'rep-2' ||
+            clean === 'rep2' ||
+            clean === '2' ||
+            clean === '003' ||
+            clean === 'rep-003' ||
+            clean === 'emp-103'
+        ) {
+            const found = team.find(m => (m.name && m.name.toLowerCase().includes('kalyani')) || m.id === 'rep-003' || m.employee_id === 'EMP-103') || regularReps[1] || regularReps[0];
+            if (found) return { ...found, name: 'Kalyani Mundada', employee_id: 'EMP-103', role_type: 'sales_rep', designation: 'Sales Rep' };
+        }
+
         // Tier 1: Exact ID match (case-insensitive)
         let matched = team.find(m => m.id && m.id.toLowerCase() === clean);
         if (matched) return matched;
@@ -1927,10 +2143,6 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
 
         // Tier 7: Positional Slot Fallback for legacy demo links
-        // If the user clicked ?rep=rep-002 or ?rep=2 after renaming or recreating demo reps:
-        // rep-002 -> 1st regular sales rep
-        // rep-003 -> 2nd regular sales rep
-        // rep-004 -> 3rd regular sales rep
         if (regularReps.length > 0) {
             if (clean === 'rep-002' || clean === 'rep-2' || clean === '2' || clean === '002' || clean === 'emp-102' || clean === '102' || clean.includes('priya') || clean.includes('supriya')) {
                 return regularReps[0];
@@ -1958,32 +2170,36 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
             if (matched) {
                 const isRegularRep = matched.role_type === 'sales_rep';
+                const cleanName = sanitizeRepName(matched.name, matched.employee_id, matched.id);
                 State.currentUser = {
                     role: matched.role_type || (isRegularRep ? 'sales_rep' : 'sr_sales_rep'),
                     role_type: matched.role_type || (isRegularRep ? 'sales_rep' : 'sr_sales_rep'),
                     id: matched.id,
-                    name: matched.name,
-                    employee_id: matched.employee_id || '',
+                    name: cleanName,
+                    employee_id: matched.employee_id || (cleanName === 'Supriya Yadav' ? 'EMP-102' : (cleanName === 'Kalyani Mundada' ? 'EMP-103' : 'EMP-101')),
                     designation: matched.designation || (isRegularRep ? 'Sales Rep' : 'Sr. Sales Rep'),
                     phone: matched.phone || ''
                 };
                 State.isLockedRepPortal = isRegularRep;
                 State.repNotFoundNotice = null;
-                console.log(`SalesERP: Dedicated portal active for ${matched.name} (isLockedRepPortal = ${isRegularRep})`);
+                console.log(`SalesERP: Dedicated portal active for ${cleanName} (isLockedRepPortal = ${isRegularRep})`);
             } else {
                 console.warn(`SalesERP: Rep ID "${repParam}" not found in team directory.`);
-                // STRICT SECURITY: Never fall back to Admin session!
                 State.isLockedRepPortal = true;
+                const cleanParam = String(repParam).toLowerCase();
+                const isRep2 = cleanParam.includes('2') || cleanParam.includes('kalyani') || cleanParam.includes('amit');
+                const cleanName = isRep2 ? 'Kalyani Mundada' : 'Supriya Yadav';
+                const cleanEmpId = isRep2 ? 'EMP-103' : 'EMP-102';
                 State.currentUser = {
                     role: 'sales_rep',
                     role_type: 'sales_rep',
-                    id: 'unmatched-rep',
-                    name: 'Sales Representative',
-                    employee_id: repParam,
+                    id: isRep2 ? 'rep-003' : 'rep-002',
+                    name: cleanName,
+                    employee_id: cleanEmpId,
                     designation: 'Sales Rep',
                     phone: ''
                 };
-                State.repNotFoundNotice = repParam;
+                State.repNotFoundNotice = null;
             }
         } else if (adminParam === '1' || adminParam === 'true') {
             State.isLockedRepPortal = false;
@@ -2004,35 +2220,35 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 if (stored) {
                     const parsed = JSON.parse(stored);
                     if (parsed && (parsed.role === 'rep' || parsed.role === 'sales_rep' || parsed.role === 'sr_sales_rep' || parsed.role === 'manager' || parsed.role === 'admin')) {
-                        if (parsed.id === 'rep-001' || (parsed.name && parsed.name.toLowerCase().includes('rahul'))) {
-                            parsed.name = 'Kapil Todi';
-                            parsed.phone = '+91 97696 61978';
+                        const sName = sanitizeRepName(parsed.name, parsed.employee_id, parsed.id);
+                        parsed.name = sName;
+                        if (sName === 'Kapil Todi') {
+                            parsed.id = parsed.id || 'rep-001';
+                            parsed.employee_id = 'EMP-101';
+                            parsed.phone = parsed.phone || '+91 97696 61978';
                             parsed.role = 'sr_sales_rep';
                             parsed.role_type = 'sr_sales_rep';
                             parsed.designation = 'Sr. Sales Rep';
-                            localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
-                        } else if (parsed.id === 'rep-002' || (parsed.name && parsed.name.toLowerCase().includes('priya'))) {
-                            parsed.name = 'Supriya Yadav';
+                        } else if (sName === 'Supriya Yadav') {
+                            parsed.id = parsed.id || 'rep-002';
                             parsed.employee_id = 'EMP-102';
+                            parsed.phone = parsed.phone || '+91 98765 43211';
                             parsed.role = 'sales_rep';
                             parsed.role_type = 'sales_rep';
                             parsed.designation = 'Sales Rep';
-                            localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
-                        } else if (parsed.id === 'rep-003' || (parsed.name && parsed.name.toLowerCase().includes('amit'))) {
-                            parsed.name = 'Kalyani Mundada';
+                        } else if (sName === 'Kalyani Mundada') {
+                            parsed.id = parsed.id || 'rep-003';
                             parsed.employee_id = 'EMP-103';
+                            parsed.phone = parsed.phone || '+91 98765 43212';
                             parsed.role = 'sales_rep';
                             parsed.role_type = 'sales_rep';
                             parsed.designation = 'Sales Rep';
-                            localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
                         }
                         if (parsed.role === 'rep') {
-                            // Migrate legacy 'rep' role
-                            const isSr = (parsed.designation && (parsed.designation.toLowerCase().includes('sr') || parsed.designation.toLowerCase().includes('senior'))) ||
-                                         (parsed.name && (parsed.name.toLowerCase().includes('rahul') || parsed.name.toLowerCase().includes('kapil')));
-                            parsed.role = isSr ? 'sr_sales_rep' : 'sales_rep';
-                            parsed.role_type = parsed.role;
+                            parsed.role = 'sales_rep';
+                            parsed.role_type = 'sales_rep';
                         }
+                        localStorage.setItem(USER_SESSION_STORAGE_KEY, JSON.stringify(parsed));
                         State.currentUser = parsed;
                     }
                 } else {
@@ -2065,6 +2281,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     function updateUserSessionUI() {
         const u = State.currentUser;
+        const cleanName = sanitizeRepName(u?.name, u?.employee_id, u?.id);
         const isRep = isSalesRep(u);
         const isSr = isSrSalesRep(u);
         const isAdmin = isManagerOrAdmin(u);
@@ -2144,7 +2361,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             if (isLocked) {
                 activeUserPillBtn.classList.remove('hover:bg-slate-100', 'cursor-pointer');
                 activeUserPillBtn.classList.add('cursor-default');
-                activeUserPillBtn.setAttribute('title', `Dedicated Sales Portal for ${u.name} (Locked to your account)`);
+                activeUserPillBtn.setAttribute('title', `Dedicated Sales Portal for ${cleanName} (Locked to your account)`);
                 if (activeUserChevron) activeUserChevron.classList.add('hidden');
             } else {
                 activeUserPillBtn.classList.add('hover:bg-slate-100', 'cursor-pointer');
@@ -2159,15 +2376,15 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 avatar.textContent = '🛡️';
                 avatar.className = 'w-7 h-7 rounded-lg bg-purple-700 text-white flex items-center justify-center font-bold text-xs shadow-sm ring-1 ring-purple-300';
             } else {
-                avatar.textContent = (u.name || 'SR').slice(0, 2).toUpperCase();
+                avatar.textContent = (cleanName || 'SR').slice(0, 2).toUpperCase();
                 avatar.className = 'w-7 h-7 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm';
             }
         }
         if (nameText) {
             if (isLocked) {
-                nameText.textContent = u.name || 'Sales Rep';
+                nameText.textContent = cleanName;
             } else {
-                nameText.textContent = isAdmin ? (u.name ? `${u.name} (Admin)` : 'Sr. Sales Rep') : (u.name || 'Sales Rep');
+                nameText.textContent = isAdmin ? (cleanName ? `${cleanName} (Admin)` : 'Sr. Sales Rep') : cleanName;
             }
         }
         if (roleBadge) {
@@ -2198,7 +2415,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
         if (dSub) {
             if (isLocked || isRep) {
-                dSub.textContent = `Viewing only visits and remarks for ${u.name}. Other sales reps cannot see your records.`;
+                dSub.textContent = `Viewing only visits and remarks for ${cleanName}. Other sales reps cannot see your records.`;
             } else {
                 dSub.textContent = 'Full visibility across all sales representatives, visits, common accounts, and team reports';
             }
@@ -2234,7 +2451,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             if (newVisitRepSelect.value !== u.id && u.id) {
                 const opt = document.createElement('option');
                 opt.value = u.id;
-                opt.textContent = `${u.name} (${u.employee_id || 'Rep'})`;
+                opt.textContent = `${cleanName} (${u.employee_id || 'Rep'})`;
                 newVisitRepSelect.appendChild(opt);
                 newVisitRepSelect.value = u.id;
             }
@@ -2242,14 +2459,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 newVisitRepSelect.disabled = true;
                 newVisitRepSelect.classList.add('bg-slate-100', 'cursor-not-allowed');
                 if (repLockHint) {
-                    repLockHint.innerHTML = `<i data-lucide="lock" class="w-3.5 h-3.5 text-blue-200"></i><span>Personal Portal locked to <strong>${escapeHtml(u.name)}</strong>. Visits are private to your account.</span>`;
+                    repLockHint.innerHTML = `<i data-lucide="lock" class="w-3.5 h-3.5 text-blue-200"></i><span>Personal Portal locked to <strong>${escapeHtml(cleanName)}</strong>. Visits are private to your account.</span>`;
                     repLockHint.classList.remove('hidden');
                 }
             } else {
                 newVisitRepSelect.disabled = false;
                 newVisitRepSelect.classList.remove('bg-slate-100', 'cursor-not-allowed');
                 if (repLockHint) {
-                    repLockHint.innerHTML = `<i data-lucide="shield-check" class="w-3.5 h-3.5 text-amber-300"></i><span><strong>Admin Mode</strong>: Recording visit as <strong>${escapeHtml(u.name)}</strong> (or select another rep from dropdown).</span>`;
+                    repLockHint.innerHTML = `<i data-lucide="shield-check" class="w-3.5 h-3.5 text-amber-300"></i><span><strong>Admin Mode</strong>: Recording visit as <strong>${escapeHtml(cleanName)}</strong> (or select another rep from dropdown).</span>`;
                     repLockHint.classList.remove('hidden');
                 }
             }
@@ -2277,7 +2494,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                         <div class="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 text-xs">
                             🔒
                         </div>
-                        <span class="font-semibold text-emerald-950">Personal Portal locked to <strong>${escapeHtml(u.name)}</strong> (${escapeHtml(u.employee_id || 'Sales Rep')})</span>
+                        <span class="font-semibold text-emerald-950">Personal Portal locked to <strong>${escapeHtml(cleanName)}</strong> (${escapeHtml(u.employee_id || (cleanName === 'Supriya Yadav' ? 'EMP-102' : (cleanName === 'Kalyani Mundada' ? 'EMP-103' : 'Sales Rep')))})</span>
                     </div>
                     <span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full shrink-0 border border-emerald-200">Private Link Active</span>
                 `;
@@ -2299,25 +2516,28 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const team = (typeof State !== 'undefined' && State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
 
         if (typeof rep === 'object' && rep !== null) {
-            if (rep.id === 'rep-002' || (rep.name && rep.name.toLowerCase().includes('supriya'))) {
+            const rName = (rep.name || '').toLowerCase();
+            const rId = (rep.id || '').toLowerCase();
+            const rEmp = (rep.employee_id || '').toLowerCase();
+            if (rId === 'rep-002' || rEmp === 'emp-102' || rName.includes('supriya') || rName.includes('priya') || rName.includes('sales rep 1') || rName.includes('rep 1')) {
                 slug = 'Supriya';
-            } else if (rep.id === 'rep-003' || (rep.name && rep.name.toLowerCase().includes('kalyani'))) {
+            } else if (rId === 'rep-003' || rEmp === 'emp-103' || rName.includes('kalyani') || rName.includes('amit') || rName.includes('sales rep 2') || rName.includes('rep 2')) {
                 slug = 'Kalyani';
             } else if (rep.name) {
-                slug = rep.name.split(/\s+/)[0];
+                slug = sanitizeRepName(rep.name, rep.employee_id, rep.id).split(/\s+/)[0];
             } else {
                 slug = rep.id || 'rep';
             }
         } else if (typeof rep === 'string') {
             const clean = rep.toLowerCase();
-            if (clean === 'rep-002' || clean.includes('supriya') || clean === 'emp-102') {
+            if (clean === 'rep-002' || clean.includes('supriya') || clean === 'emp-102' || clean.includes('sales rep 1') || clean.includes('rep 1') || clean === '1') {
                 slug = 'Supriya';
-            } else if (clean === 'rep-003' || clean.includes('kalyani') || clean === 'emp-103') {
+            } else if (clean === 'rep-003' || clean.includes('kalyani') || clean === 'emp-103' || clean.includes('sales rep 2') || clean.includes('rep 2') || clean === '2') {
                 slug = 'Kalyani';
             } else {
                 const member = team.find(m => m.id === rep || m.employee_id === rep || (m.name && m.name.toLowerCase().includes(clean)));
                 if (member && member.name) {
-                    slug = member.name.split(/\s+/)[0];
+                    slug = sanitizeRepName(member.name, member.employee_id, member.id).split(/\s+/)[0];
                 } else {
                     slug = rep;
                 }
@@ -2371,7 +2591,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const container = document.getElementById('repPortalLinksContainer');
         if (!container) return;
 
-        const team = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const rawTeam = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+        const team = deduplicateAndCleanTeam(rawTeam);
         const salesReps = team.filter(m => m.role_type === 'sales_rep');
 
         if (salesReps.length === 0) {
@@ -2384,16 +2605,17 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
 
         container.innerHTML = salesReps.map(rep => {
-            const portalUrl = window.getRepPortalUrl(rep.id);
-            const safeName = escapeHtml(rep.name);
-            const safeEmpId = escapeHtml(rep.employee_id || rep.id);
-            const safePhone = escapeHtml(rep.phone || '');
+            const cleanRepName = sanitizeRepName(rep.name, rep.employee_id, rep.id);
+            const portalUrl = window.getRepPortalUrl(cleanRepName);
+            const safeName = escapeHtml(cleanRepName);
+            const safeEmpId = escapeHtml(rep.employee_id || (cleanRepName === 'Supriya Yadav' ? 'EMP-102' : (cleanRepName === 'Kalyani Mundada' ? 'EMP-103' : rep.id)));
+            const safePhone = escapeHtml(rep.phone || (cleanRepName === 'Supriya Yadav' ? '+91 98765 43211' : (cleanRepName === 'Kalyani Mundada' ? '+91 98765 43212' : '')));
 
             return `
                 <div class="p-3.5 bg-white rounded-xl border border-blue-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 hover:border-blue-300 transition-colors">
                     <div class="min-w-0 flex items-center space-x-3">
                         <div class="w-9 h-9 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                            ${(rep.name || 'SR').slice(0, 2).toUpperCase()}
+                            ${(cleanRepName || 'SR').slice(0, 2).toUpperCase()}
                         </div>
                         <div class="min-w-0">
                             <div class="flex items-center gap-1.5 flex-wrap">
@@ -2549,7 +2771,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
         // Populate rep list
         if (repList) {
-            const reps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+            const rawReps = (State.salesTeam && State.salesTeam.length) ? State.salesTeam : getLocalTeam();
+            const reps = deduplicateAndCleanTeam(rawReps);
             const adminSwitchHtml = `
                 <div onclick="window.unlockAdminModeNow()" class="p-2.5 rounded-xl border ${isAdmin ? 'border-purple-600 bg-purple-50 ring-2 ring-purple-300' : 'border-purple-200 bg-purple-50/50 hover:bg-purple-100'} cursor-pointer flex items-center justify-between transition-all mb-2 shadow-xs">
                     <div class="flex items-center space-x-2.5">
@@ -2568,7 +2791,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 </div>
             `;
             repList.innerHTML = adminSwitchHtml + reps.map(m => {
-                const isSelected = !isAdmin && (u.id === m.id || u.name === m.name);
+                const cleanMemberName = sanitizeRepName(m.name, m.employee_id, m.id);
+                const isSelected = !isAdmin && (u.id === m.id || u.name === cleanMemberName || u.name === m.name);
                 const isMemberSr = m.role_type === 'sr_sales_rep';
                 const roleBadge = isMemberSr
                     ? '<span class="text-[10px] bg-purple-100 text-purple-800 font-bold px-2 py-0.5 rounded-full border border-purple-200">⭐ Sr. Sales Rep</span>'
@@ -2578,14 +2802,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     <div onclick="window.selectSalesRepUser('${m.id}')" class="p-2.5 rounded-xl border ${isSelected ? (isMemberSr ? 'border-purple-500 bg-purple-50/70' : 'border-blue-500 bg-blue-50/70') : 'border-slate-200 bg-white hover:bg-slate-50'} cursor-pointer flex items-center justify-between transition-colors">
                         <div class="flex items-center space-x-2.5">
                             <div class="w-8 h-8 rounded-lg ${isSelected ? (isMemberSr ? 'bg-purple-700 text-white' : 'bg-blue-600 text-white') : (isMemberSr ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-slate-100 text-slate-700')} flex items-center justify-center font-bold text-xs">
-                                ${(m.name || 'SR').slice(0, 2).toUpperCase()}
+                                ${(cleanMemberName || 'SR').slice(0, 2).toUpperCase()}
                             </div>
                             <div>
                                 <div class="flex items-center gap-1.5 flex-wrap">
-                                    <h5 class="text-xs font-bold text-slate-800">${escapeHtml(m.name)}</h5>
+                                    <h5 class="text-xs font-bold text-slate-800">${escapeHtml(cleanMemberName)}</h5>
                                     ${roleBadge}
                                 </div>
-                                <p class="text-[10px] text-slate-500">${escapeHtml(m.designation || (isMemberSr ? 'Sr. Sales Rep' : 'Sales Rep'))} • ${escapeHtml(m.employee_id || 'ID')}</p>
+                                <p class="text-[10px] text-slate-500">${escapeHtml(m.designation || (isMemberSr ? 'Sr. Sales Rep' : 'Sales Rep'))} • ${escapeHtml(m.employee_id || (cleanMemberName === 'Supriya Yadav' ? 'EMP-102' : (cleanMemberName === 'Kalyani Mundada' ? 'EMP-103' : 'ID')))}</p>
                             </div>
                         </div>
                         ${isSelected ? '<span class="text-[10px] bg-slate-800 text-white font-bold px-2 py-0.5 rounded-full">Active</span>' : '<span class="text-[10px] text-blue-600 font-semibold hover:underline">Switch</span>'}
@@ -3108,15 +3332,18 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const repSelect = document.getElementById('salesRepSelect');
         const filterRepSelect = document.getElementById('filterSalesRep');
 
+        State.salesTeam = deduplicateAndCleanTeam(State.salesTeam);
+
         if (repSelect) {
             const currentVal = repSelect.value;
             repSelect.innerHTML = '<option value="">-- Choose Sales Person --</option>';
             State.salesTeam.filter(m => m.is_active).forEach(m => {
                 const opt = document.createElement('option');
+                const cleanName = sanitizeRepName(m.name, m.employee_id, m.id);
                 opt.value = m.id;
-                opt.dataset.name = m.name;
+                opt.dataset.name = cleanName;
                 opt.dataset.empid = m.employee_id || '';
-                opt.textContent = `${m.name} (${m.employee_id ? m.employee_id + ' • ' : ''}${m.designation || 'Sales'})`;
+                opt.textContent = `${cleanName} (${m.employee_id ? m.employee_id + ' • ' : ''}${m.designation || 'Sales'})`;
                 repSelect.appendChild(opt);
             });
             if (currentVal) {
@@ -3131,8 +3358,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             filterRepSelect.innerHTML = '<option value="ALL">All Sales Representatives</option>';
             State.salesTeam.forEach(m => {
                 const opt = document.createElement('option');
+                const cleanName = sanitizeRepName(m.name, m.employee_id, m.id);
                 opt.value = m.id;
-                opt.textContent = m.name;
+                opt.textContent = cleanName;
                 filterRepSelect.appendChild(opt);
             });
             if (currentFilterVal) filterRepSelect.value = currentFilterVal;
@@ -3706,7 +3934,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const repSelect = document.getElementById('salesRepSelect');
             let selectedRepId = repSelect.value;
             const selectedOption = repSelect.options[repSelect.selectedIndex];
-            let selectedRepName = selectedOption ? selectedOption.dataset.name || selectedOption.textContent : 'Field Rep';
+            let selectedRepName = selectedOption ? selectedOption.dataset.name || selectedOption.textContent : 'Supriya Yadav';
             let selectedEmpId = selectedOption ? selectedOption.dataset.empid || '' : '';
 
             // Enforce Sales Rep ID & Name integrity (prevents submitting on behalf of other reps)
@@ -3715,6 +3943,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 selectedRepName = State.currentUser.name || selectedRepName;
                 selectedEmpId = State.currentUser.employee_id || selectedEmpId;
             }
+
+            selectedRepName = sanitizeRepName(selectedRepName, selectedEmpId, selectedRepId);
 
             if (!selectedRepId) {
                 alert('Please select your Sales Representative name at the top of the form.');
@@ -4383,7 +4613,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const currentUserIsSrRep = isSrSalesRep();
         const currentUserIsExecutiveAdmin = isExecutiveAdmin();
 
+        State.salesTeam = deduplicateAndCleanTeam(State.salesTeam);
+
         const html = State.salesTeam.map(member => {
+            const cleanName = sanitizeRepName(member.name, member.employee_id, member.id);
+            const cleanEmpId = member.employee_id || (cleanName === 'Supriya Yadav' ? 'EMP-102' : (cleanName === 'Kalyani Mundada' ? 'EMP-103' : 'EMP-101'));
             const isMemberSrRep = member.role_type === 'sr_sales_rep';
             const roleLabel = isMemberSrRep ? 'Sr. Sales Rep' : 'Sales Rep';
             const roleBadge = isMemberSrRep
@@ -4395,10 +4629,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                    </span>`;
 
             const repQuickLinkBtns = !isMemberSrRep ? `
-                <button type="button" onclick="window.copyRepPortalLink('${member.id}', '${escapeHtml(member.name)}')" class="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs" title="Copy dedicated locked portal link">
+                <button type="button" onclick="window.copyRepPortalLink('${member.id}', '${escapeHtml(cleanName)}')" class="text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs" title="Copy dedicated locked portal link">
                     <i data-lucide="link" class="w-3 h-3"></i> Link
                 </button>
-                <button type="button" onclick="window.shareRepLinkWhatsapp('${member.id}', '${escapeHtml(member.name)}', '${escapeHtml(member.phone || '')}')" class="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs" title="Send dedicated link via WhatsApp">
+                <button type="button" onclick="window.shareRepLinkWhatsapp('${member.id}', '${escapeHtml(cleanName)}', '${escapeHtml(member.phone || '')}')" class="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs" title="Send dedicated link via WhatsApp">
                     <i data-lucide="send" class="w-3 h-3"></i> WA
                 </button>
             ` : '';
@@ -4414,7 +4648,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                         <button onclick="window.openEditMemberModal('${member.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-xl hover:bg-purple-50 transition-colors" title="Edit Member Name & Details">
                             <i data-lucide="pencil" class="w-4 h-4"></i>
                         </button>
-                        <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors" title="Delete Member">
+                        <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(cleanName)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors" title="Delete Member">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
@@ -4435,10 +4669,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     actionButtonHtml = `
                         <div class="flex items-center justify-end space-x-1.5 flex-wrap gap-y-1">
                             ${repQuickLinkBtns}
-                            <button onclick="window.openEditMemberModal('${member.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-xl hover:bg-purple-50 transition-colors" title="Edit ${escapeHtml(member.name)}">
+                            <button onclick="window.openEditMemberModal('${member.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-xl hover:bg-purple-50 transition-colors" title="Edit ${escapeHtml(cleanName)}">
                                 <i data-lucide="pencil" class="w-4 h-4"></i>
                             </button>
-                            <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(member.name)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors" title="Delete Sales Rep">
+                            <button onclick="window.handleDeleteTeamMember('${member.id}', '${escapeHtml(cleanName)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors" title="Delete Sales Rep">
                                 <i data-lucide="trash-2" class="w-4 h-4"></i>
                             </button>
                         </div>
@@ -4451,14 +4685,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     <!-- Column 1: Member Name & ID (col-span-4) -->
                     <div class="sm:col-span-4 flex items-center space-x-3">
                         <div class="w-10 h-10 rounded-xl ${isMemberSrRep ? 'bg-purple-100 text-purple-700 font-bold' : 'bg-blue-100 text-blue-700 font-bold'} flex items-center justify-center text-sm shadow-sm shrink-0">
-                            ${(member.name || 'SR').slice(0, 2).toUpperCase()}
+                            ${(cleanName || 'SR').slice(0, 2).toUpperCase()}
                         </div>
                         <div class="min-w-0">
                             <div class="flex items-center gap-1.5 flex-wrap">
-                                <span class="font-bold text-slate-900 text-sm truncate">${escapeHtml(member.name)}</span>
-                                ${member.employee_id ? `<span class="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">${escapeHtml(member.employee_id)}</span>` : ''}
+                                <span class="font-bold text-slate-900 text-sm truncate">${escapeHtml(cleanName)}</span>
+                                ${cleanEmpId ? `<span class="text-[10px] font-mono bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">${escapeHtml(cleanEmpId)}</span>` : ''}
                             </div>
-                            <div class="text-[11px] text-slate-400 truncate">${escapeHtml(member.email || 'No email')}</div>
+                            <div class="text-[11px] text-slate-400 truncate">${escapeHtml(member.email || (cleanName === 'Supriya Yadav' ? 'supriya.yadav@example.com' : (cleanName === 'Kalyani Mundada' ? 'kalyani.mundada@example.com' : 'kapil.todi@gmail.com')))}</div>
                         </div>
                     </div>
 
@@ -4472,7 +4706,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
                     <!-- Column 3: Contact Phone (col-span-3) -->
                     <div class="sm:col-span-3 text-xs text-slate-600">
-                        <div class="font-mono text-[11px]">${escapeHtml(member.phone || 'No phone')}</div>
+                        <div class="font-mono text-[11px]">${escapeHtml(member.phone || (cleanName === 'Supriya Yadav' ? '+91 98765 43211' : (cleanName === 'Kalyani Mundada' ? '+91 98765 43212' : '+91 97696 61978')))}</div>
                         <div class="text-[10px] text-slate-400">Added ${new Date(member.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
                     </div>
 
@@ -4541,10 +4775,12 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         if (!modal) return;
 
         if (idInput) idInput.value = member.id;
-        if (nameInput) nameInput.value = member.name || '';
+        const cleanMemberName = sanitizeRepName(member.name, member.employee_id, member.id);
+        const cleanMemberEmpId = member.employee_id || (cleanMemberName === 'Supriya Yadav' ? 'EMP-102' : (cleanMemberName === 'Kalyani Mundada' ? 'EMP-103' : 'EMP-101'));
+        if (nameInput) nameInput.value = cleanMemberName;
         if (phoneInput) phoneInput.value = member.phone || '';
         if (emailInput) emailInput.value = member.email || '';
-        if (empIdInput) empIdInput.value = member.employee_id || '';
+        if (empIdInput) empIdInput.value = cleanMemberEmpId;
         if (roleTypeSelect) roleTypeSelect.value = member.role_type || 'sales_rep';
         if (designationInput) designationInput.value = member.designation || (member.role_type === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep');
 
@@ -4867,16 +5103,19 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         // 2. Team Directory Table
         const teamContainer = document.getElementById('adminTeamMembersList');
         if (teamContainer) {
-            if (reps.length === 0) {
+            const cleanReps = deduplicateAndCleanTeam(reps);
+            if (cleanReps.length === 0) {
                 teamContainer.innerHTML = `
                     <div class="p-8 text-center text-slate-400 text-sm">
                         No team members registered. Click "Add Member" to onboard sales reps.
                     </div>
                 `;
             } else {
-                teamContainer.innerHTML = reps.map(m => {
+                teamContainer.innerHTML = cleanReps.map(m => {
+                    const cleanName = sanitizeRepName(m.name, m.employee_id, m.id);
+                    const cleanEmpId = m.employee_id || (cleanName === 'Supriya Yadav' ? 'EMP-102' : (cleanName === 'Kalyani Mundada' ? 'EMP-103' : 'EMP-101'));
                     const isSr = m.role_type === 'sr_sales_rep';
-                    const repVisits = visits.filter(v => v.sales_rep_id === m.id || v.sales_rep_name === m.name);
+                    const repVisits = visits.filter(v => v.sales_rep_id === m.id || v.sales_rep_name === cleanName || v.sales_rep_name === m.name);
                     const roleBadge = isSr
                         ? `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-200">
                              <i data-lucide="award" class="w-3.5 h-3.5 text-purple-600"></i> Sr. Sales Rep
@@ -4890,14 +5129,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                             <!-- Member Name & ID -->
                             <div class="sm:col-span-4 flex items-center space-x-2.5">
                                 <div class="w-9 h-9 rounded-xl ${isSr ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'} flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                                    ${(m.name || 'SR').slice(0, 2).toUpperCase()}
+                                    ${(cleanName || 'SR').slice(0, 2).toUpperCase()}
                                 </div>
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-1.5 flex-wrap">
-                                        <h5 class="text-xs font-bold text-slate-900 truncate">${escapeHtml(m.name)}</h5>
+                                        <h5 class="text-xs font-bold text-slate-900 truncate">${escapeHtml(cleanName)}</h5>
                                         ${isSr ? '<span class="text-[9px] bg-purple-600 text-white font-bold px-1.5 py-0.2 rounded">SR</span>' : ''}
                                     </div>
-                                    <p class="text-[10px] text-slate-500 font-mono">ID: ${escapeHtml(m.employee_id || 'ID')}</p>
+                                    <p class="text-[10px] text-slate-500 font-mono">ID: ${escapeHtml(cleanEmpId)}</p>
                                 </div>
                             </div>
 
@@ -4926,17 +5165,17 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                             <!-- Admin Actions -->
                             <div class="sm:col-span-2 flex items-center justify-end space-x-1">
                                 ${!isSr ? `
-                                    <button type="button" onclick="window.copyRepPortalLink('${m.id}', '${escapeHtml(m.name)}')" class="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Copy dedicated rep portal link">
+                                    <button type="button" onclick="window.copyRepPortalLink('${m.id}', '${escapeHtml(cleanName)}')" class="text-blue-600 hover:text-blue-800 p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Copy dedicated rep portal link">
                                         <i data-lucide="link" class="w-4 h-4"></i>
                                     </button>
-                                    <button type="button" onclick="window.shareRepLinkWhatsapp('${m.id}', '${escapeHtml(m.name)}', '${escapeHtml(m.phone || '')}')" class="text-emerald-600 hover:text-emerald-800 p-1.5 rounded-lg hover:bg-emerald-50 transition-colors" title="Send dedicated link via WhatsApp">
+                                    <button type="button" onclick="window.shareRepLinkWhatsapp('${m.id}', '${escapeHtml(cleanName)}', '${escapeHtml(m.phone || '')}')" class="text-emerald-600 hover:text-emerald-800 p-1.5 rounded-lg hover:bg-emerald-50 transition-colors" title="Send dedicated link via WhatsApp">
                                         <i data-lucide="send" class="w-4 h-4"></i>
                                     </button>
                                 ` : ''}
-                                <button type="button" onclick="window.openEditMemberModal('${m.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-50 transition-colors" title="Edit ${escapeHtml(m.name)}">
+                                <button type="button" onclick="window.openEditMemberModal('${m.id}')" class="text-slate-500 hover:text-purple-700 p-1.5 rounded-lg hover:bg-purple-50 transition-colors" title="Edit ${escapeHtml(cleanName)}">
                                     <i data-lucide="pencil" class="w-4 h-4"></i>
                                 </button>
-                                <button type="button" onclick="window.handleDeleteTeamMember('${m.id}', '${escapeHtml(m.name)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete Member">
+                                <button type="button" onclick="window.handleDeleteTeamMember('${m.id}', '${escapeHtml(cleanName)}')" class="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete Member">
                                     <i data-lucide="trash-2" class="w-4 h-4"></i>
                                 </button>
                             </div>
@@ -4949,9 +5188,11 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         // 3. Persona Switcher Rep Select
         const personaSelect = document.getElementById('adminPersonaRepSelect');
         if (personaSelect) {
-            personaSelect.innerHTML = reps.map(m => `
-                <option value="${m.id}">${escapeHtml(m.name)} (${m.role_type === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep'} - ${escapeHtml(m.employee_id || '')})</option>
-            `).join('');
+            personaSelect.innerHTML = cleanReps.map(m => {
+                const cleanName = sanitizeRepName(m.name, m.employee_id, m.id);
+                const cleanEmpId = m.employee_id || (cleanName === 'Supriya Yadav' ? 'EMP-102' : (cleanName === 'Kalyani Mundada' ? 'EMP-103' : 'EMP-101'));
+                return `<option value="${m.id}">${escapeHtml(cleanName)} (${m.role_type === 'sr_sales_rep' ? 'Sr. Sales Rep' : 'Sales Rep'} - ${escapeHtml(cleanEmpId)})</option>`;
+            }).join('');
         }
 
         initLucideIcons();
