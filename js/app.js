@@ -13,10 +13,12 @@
     // 1. CONFIGURATION SERVICE
     // --------------------------------------------------------------------------
     const CONFIG_STORAGE_KEY = 'sales_erp_supabase_config';
+    const DEFAULT_SUPABASE_URL = '';
+    const DEFAULT_SUPABASE_ANON_KEY = '';
 
     const AppConfig = {
-        supabaseUrl: localStorage.getItem(`${CONFIG_STORAGE_KEY}_url`) || '',
-        supabaseAnonKey: localStorage.getItem(`${CONFIG_STORAGE_KEY}_key`) || '',
+        supabaseUrl: localStorage.getItem(`${CONFIG_STORAGE_KEY}_url`) || DEFAULT_SUPABASE_URL,
+        supabaseAnonKey: localStorage.getItem(`${CONFIG_STORAGE_KEY}_key`) || DEFAULT_SUPABASE_ANON_KEY,
         storageBucketName: 'visit-photos',
 
         isConfigured() {
@@ -2658,6 +2660,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 salesRepSelect.disabled = false;
                 salesRepSelect.classList.remove('cursor-not-allowed', 'opacity-80', 'bg-slate-100');
                 if (filterLockBadge) filterLockBadge.classList.add('hidden');
+                // Ensure default for Admin is ALL so all team members' visits are visible
+                if (!salesRepSelect.value || salesRepSelect.value === u.id || isRep) {
+                    salesRepSelect.value = 'ALL';
+                }
             }
         }
 
@@ -2725,6 +2731,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
         }
 
+        updateCloudSyncBanner();
         initLucideIcons();
     }
 
@@ -5289,6 +5296,284 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
     }
 
+    function updateCloudSyncBanner() {
+        const banner = document.getElementById('cloudSyncStatusBanner');
+        if (!banner) return;
+        const iconBadge = document.getElementById('cloudSyncIconBadge');
+        const title = document.getElementById('cloudSyncStatusTitle');
+        const desc = document.getElementById('cloudSyncStatusDesc');
+        const typeBadge = document.getElementById('cloudSyncDeviceTypeBadge');
+
+        if (AppConfig.isConfigured()) {
+            banner.className = 'p-3 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-emerald-950 shadow-xs';
+            if (iconBadge) {
+                iconBadge.className = 'w-8 h-8 rounded-xl bg-emerald-200/80 text-emerald-800 flex items-center justify-center shrink-0';
+                iconBadge.innerHTML = '<i data-lucide="cloud" class="w-4 h-4 text-emerald-700"></i>';
+            }
+            if (title) title.textContent = '🟢 Live Supabase Cloud Sync Active';
+            if (typeBadge) {
+                typeBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/60 text-emerald-900 border border-emerald-300';
+                typeBadge.textContent = 'Live Multi-Device';
+            }
+            if (desc) desc.textContent = 'Visits and photos are synchronized automatically across all Android phones, iPhones, and PC.';
+        } else {
+            banner.className = 'p-3 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-xs';
+            if (iconBadge) {
+                iconBadge.className = 'w-8 h-8 rounded-xl bg-amber-200/80 text-amber-800 flex items-center justify-center shrink-0';
+                iconBadge.innerHTML = '<i data-lucide="cloud-off" class="w-4 h-4"></i>';
+            }
+            if (title) title.textContent = 'Single-Device Local Storage (Offline Mode)';
+            if (typeBadge) {
+                typeBadge.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200/60 text-amber-900 border border-amber-300';
+                typeBadge.textContent = 'This Device';
+            }
+            if (desc) desc.textContent = 'Visits recorded on this device stay in this browser. To see visits live on your PC, connect Supabase Cloud or use Sync / Transfer.';
+        }
+        initLucideIcons();
+    }
+    window.updateCloudSyncBanner = updateCloudSyncBanner;
+
+    async function syncLocalVisitsToCloud() {
+        const supabase = getSupabase();
+        if (!supabase) return { count: 0 };
+        try {
+            const local = getLocalVisits();
+            const idbVisits = (await getVisitsFromIndexedDB()) || [];
+            const map = new Map();
+            local.forEach(v => map.set(v.id, v));
+            idbVisits.forEach(v => map.set(v.id, v));
+            const allToSync = Array.from(map.values()).filter(v => v.id && !v.id.startsWith('mock-') && !v.id.startsWith('visit-10'));
+            if (allToSync.length === 0) return { count: 0 };
+
+            let syncedCount = 0;
+            for (const v of allToSync) {
+                try {
+                    const { data } = await supabase.from('client_visits').select('id').eq('id', v.id).maybeSingle();
+                    if (!data) {
+                        const { error } = await supabase.from('client_visits').insert([v]);
+                        if (!error) syncedCount++;
+                    }
+                } catch (err) {}
+            }
+            return { count: syncedCount };
+        } catch (e) {
+            console.warn('Sync error:', e);
+            return { count: 0 };
+        }
+    }
+    window.syncLocalVisitsToCloud = syncLocalVisitsToCloud;
+
+    window.openDataTransferModal = function() {
+        const modal = document.getElementById('dataTransferModal');
+        modal?.classList.remove('hidden');
+        initLucideIcons();
+    };
+
+    window.closeDataTransferModal = function() {
+        const modal = document.getElementById('dataTransferModal');
+        modal?.classList.add('hidden');
+    };
+
+    window.exportVisitsBackupJson = async function() {
+        const idb = (await getVisitsFromIndexedDB()) || [];
+        const local = getLocalVisits() || [];
+        const map = new Map();
+        local.forEach(v => map.set(v.id, v));
+        idb.forEach(v => map.set(v.id, v));
+        const all = Array.from(map.values());
+
+        const exportPayload = {
+            app: 'SalesERP',
+            version: '2.5.1',
+            export_time: new Date().toISOString(),
+            exported_by: State.currentUser?.name || 'User',
+            visits: all
+        };
+
+        const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' });
+        triggerBlobDownload(blob, `sales_visits_backup_${new Date().toISOString().split('T')[0]}.json`);
+        showToastNotification('📥 Backup downloaded! Transfer this file to your PC.', 'download');
+    };
+
+    window.copyVisitsBackupText = async function() {
+        const idb = (await getVisitsFromIndexedDB()) || [];
+        const local = getLocalVisits() || [];
+        const map = new Map();
+        local.forEach(v => map.set(v.id, v));
+        idb.forEach(v => map.set(v.id, v));
+        const all = Array.from(map.values());
+
+        const exportPayload = {
+            app: 'SalesERP',
+            version: '2.5.1',
+            visits: all
+        };
+
+        const jsonStr = JSON.stringify(exportPayload);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            try {
+                await navigator.clipboard.writeText(jsonStr);
+                alert('📋 Data copied to clipboard!\n\nYou can now paste it into WhatsApp Web or Email to transfer to your PC.');
+                return;
+            } catch (e) {}
+        }
+        prompt('Copy this backup text and send it to your PC:', jsonStr);
+    };
+
+    window.importVisitsFromJsonFile = async function(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const parsed = JSON.parse(e.target.result);
+                const visitsToImport = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.visits) ? parsed.visits : null);
+                if (!visitsToImport || !visitsToImport.length) {
+                    alert('Invalid backup file: no visits found in the selected file.');
+                    return;
+                }
+
+                const currentLocal = getLocalVisits();
+                const map = new Map();
+                currentLocal.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+                visitsToImport.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+                const merged = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
+
+                saveLocalVisits(merged);
+                await saveVisitsToIndexedDB(merged);
+
+                if (AppConfig.isConfigured()) {
+                    await syncLocalVisitsToCloud();
+                }
+
+                await loadAndRenderVisits();
+                window.closeDataTransferModal();
+                alert(`✅ Success! Imported ${visitsToImport.length} visits into this device. Dashboard updated!`);
+            } catch (err) {
+                alert('Failed to parse file: ' + err.message);
+            }
+        };
+        reader.readAsText(file);
+    };
+
+    window.importVisitsFromTextInput = async function() {
+        const input = document.getElementById('importJsonTextInput');
+        const text = (input?.value || '').trim();
+        if (!text) {
+            alert('Please paste the backup text or code first.');
+            return;
+        }
+        try {
+            const parsed = JSON.parse(text);
+            const visitsToImport = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.visits) ? parsed.visits : null);
+            if (!visitsToImport || !visitsToImport.length) {
+                alert('Invalid data: no visits found.');
+                return;
+            }
+
+            const currentLocal = getLocalVisits();
+            const map = new Map();
+            currentLocal.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+            visitsToImport.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+            const merged = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
+
+            saveLocalVisits(merged);
+            await saveVisitsToIndexedDB(merged);
+
+            if (AppConfig.isConfigured()) {
+                await syncLocalVisitsToCloud();
+            }
+
+            await loadAndRenderVisits();
+            window.closeDataTransferModal();
+            alert(`✅ Success! Imported ${visitsToImport.length} visits into this device. Dashboard updated!`);
+        } catch (err) {
+            alert('Invalid JSON text: ' + err.message);
+        }
+    };
+
+    window.openCloudSetupModal = function() {
+        const modal = document.getElementById('cloudSetupModal');
+        const urlInput = document.getElementById('quickDbUrlInput');
+        const keyInput = document.getElementById('quickDbKeyInput');
+        if (urlInput) urlInput.value = AppConfig.supabaseUrl || '';
+        if (keyInput) keyInput.value = AppConfig.supabaseAnonKey || '';
+        modal?.classList.remove('hidden');
+        initLucideIcons();
+    };
+
+    window.closeCloudSetupModal = function() {
+        const modal = document.getElementById('cloudSetupModal');
+        modal?.classList.add('hidden');
+    };
+
+    function setupDataTransferAndCloudModals() {
+        const fileInput = document.getElementById('importJsonFileInput');
+        fileInput?.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                window.importVisitsFromJsonFile(e.target.files[0]);
+            }
+        });
+
+        const cloudForm = document.getElementById('quickCloudSetupForm');
+        cloudForm?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const url = (document.getElementById('quickDbUrlInput')?.value || '').trim();
+            const key = (document.getElementById('quickDbKeyInput')?.value || '').trim();
+            const alertBox = document.getElementById('quickCloudAlert');
+            const submitBtn = document.getElementById('saveQuickCloudBtn');
+
+            if (!url || !key) {
+                alert('Please provide both Project URL and Anon Key.');
+                return;
+            }
+
+            if (alertBox) {
+                alertBox.className = 'p-3 rounded-xl text-xs bg-purple-50 text-purple-800 border border-purple-200 flex items-center gap-2';
+                alertBox.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin text-purple-600"></i> Testing Supabase connection...';
+                alertBox.classList.remove('hidden');
+                initLucideIcons();
+            }
+
+            if (submitBtn) submitBtn.disabled = true;
+
+            const res = await testSupabaseConnection(url, key);
+
+            if (submitBtn) submitBtn.disabled = false;
+
+            if (res.success) {
+                AppConfig.saveConfig(url, key);
+                reinitSupabase();
+
+                const confUrl = document.getElementById('configUrlInput');
+                const confKey = document.getElementById('configKeyInput');
+                const adminUrl = document.getElementById('adminDbUrlInput');
+                const adminKey = document.getElementById('adminDbKeyInput');
+                if (confUrl) confUrl.value = url;
+                if (confKey) confKey.value = key;
+                if (adminUrl) adminUrl.value = url;
+                if (adminKey) adminKey.value = key;
+
+                updateConnectionIndicator();
+                updateCloudSyncBanner();
+                renderAdminPanelData();
+
+                // Sync existing local visits to cloud
+                const syncRes = await syncLocalVisitsToCloud();
+                await loadSalesTeam();
+                await loadAndRenderVisits();
+
+                window.closeCloudSetupModal();
+                alert(`🎉 Connected to Supabase Cloud Successfully!\n\nMulti-device live sync is now active between PC and Android phones.${syncRes.count > 0 ? `\nSynced ${syncRes.count} existing local visits to the cloud database.` : ''}`);
+            } else {
+                if (alertBox) {
+                    alertBox.className = 'p-3 rounded-xl text-xs bg-rose-50 text-rose-800 border border-rose-200';
+                    alertBox.textContent = res.message || 'Connection failed.';
+                    alertBox.classList.remove('hidden');
+                }
+            }
+        });
+    }
+
     // --------------------------------------------------------------------------
     // LIGHTBOX MODAL
     // --------------------------------------------------------------------------
@@ -5743,10 +6028,12 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         setupSupabaseConfig();
         setupAdminAccessPanel();
         setupLightbox();
+        setupDataTransferAndCloudModals();
 
         await loadSalesTeam();
         initUserSession();
         updateConnectionIndicator();
+        updateCloudSyncBanner();
         await loadAndRenderVisits();
 
         // Auto-detect live GPS location on page launch so Option B is pre-populated
