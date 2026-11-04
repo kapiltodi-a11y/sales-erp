@@ -84,6 +84,50 @@
         }
     }
 
+    function compressImageForStorage(fileOrBlob, maxWidth = 900, maxHeight = 900, quality = 0.65) {
+        return new Promise((resolve) => {
+            if (!fileOrBlob) return resolve(null);
+            if (typeof fileOrBlob === 'string') return resolve(fileOrBlob);
+
+            if (fileOrBlob.type === 'application/pdf' || (fileOrBlob.name && fileOrBlob.name.toLowerCase().endsWith('.pdf'))) {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(fileOrBlob);
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    let w = img.width;
+                    let h = img.height;
+                    if (w > maxWidth || h > maxHeight) {
+                        if (w > h) {
+                            h = Math.round((h * maxWidth) / w);
+                            w = maxWidth;
+                        } else {
+                            w = Math.round((w * maxHeight) / h);
+                            h = maxHeight;
+                        }
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    const dataUrl = canvas.toDataURL('image/jpeg', quality);
+                    resolve(dataUrl);
+                };
+                img.onerror = () => resolve(e.target.result);
+                img.src = e.target.result;
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(fileOrBlob);
+        });
+    }
+
     async function uploadVisitImage(file, folder = 'visits') {
         if (!file) return null;
         const supabase = getSupabase();
@@ -107,17 +151,12 @@
                     }
                 }
             } catch (e) {
-                console.warn('Storage upload error, using data URL fallback:', e);
+                console.warn('Storage upload error, using compressed data URL fallback:', e);
             }
         }
 
-        // Fallback to data URL
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = () => resolve(null);
-            reader.readAsDataURL(file);
-        });
+        // Compressed data URL fallback (reduces 10MB raw camera photos to ~45KB, preventing quota overflow)
+        return await compressImageForStorage(file);
     }
 
     // --------------------------------------------------------------------------
@@ -987,12 +1026,77 @@
     }
     window.sanitizeVisitRecord = sanitizeVisitRecord;
 
+    // --------------------------------------------------------------------------
+    // ROBUST CLIENT STORAGE: INDEXEDDB + COMPRESSED LOCALSTORAGE
+    // --------------------------------------------------------------------------
+    const IDB_NAME = 'SalesErpDB_v2';
+    const IDB_STORE = 'client_visits';
+
+    function openVisitsIDB() {
+        return new Promise((resolve) => {
+            if (typeof window === 'undefined' || !window.indexedDB) return resolve(null);
+            try {
+                const req = window.indexedDB.open(IDB_NAME, 1);
+                req.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(IDB_STORE)) {
+                        db.createObjectStore(IDB_STORE, { keyPath: 'id' });
+                    }
+                };
+                req.onsuccess = () => resolve(req.result);
+                req.onerror = () => resolve(null);
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    async function saveVisitsToIndexedDB(visits) {
+        if (!Array.isArray(visits) || visits.length === 0) return;
+        const db = await openVisitsIDB();
+        if (!db) return;
+        try {
+            const tx = db.transaction(IDB_STORE, 'readwrite');
+            const store = tx.objectStore(IDB_STORE);
+            for (const v of visits) {
+                if (v && v.id) store.put(v);
+            }
+        } catch (e) {
+            console.warn('IDB put error:', e);
+        }
+    }
+
+    async function getVisitsFromIndexedDB() {
+        const db = await openVisitsIDB();
+        if (!db) return null;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(IDB_STORE, 'readonly');
+                const store = tx.objectStore(IDB_STORE);
+                const req = store.getAll();
+                req.onsuccess = () => resolve(req.result || []);
+                req.onerror = () => resolve(null);
+            } catch (e) {
+                resolve(null);
+            }
+        });
+    }
+
+    async function deleteVisitFromIndexedDB(id) {
+        const db = await openVisitsIDB();
+        if (!db || !id) return;
+        try {
+            const tx = db.transaction(IDB_STORE, 'readwrite');
+            tx.objectStore(IDB_STORE).delete(id);
+        } catch (e) {}
+    }
+
     function getLocalVisits() {
         try {
             const stored = localStorage.getItem(VISITS_STORAGE_KEY);
             if (stored) {
                 const parsed = JSON.parse(stored);
-                if (Array.isArray(parsed)) {
+                if (Array.isArray(parsed) && parsed.length > 0) {
                     let mod = false;
                     parsed.forEach(v => {
                         const oldName = v.sales_rep_name;
@@ -1022,12 +1126,35 @@
             }
         } catch (e) {}
         const defaultClean = DEFAULT_SAMPLE_VISITS.map(v => sanitizeVisitRecord({ ...v }));
-        localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(defaultClean));
+        saveLocalVisits(defaultClean);
         return defaultClean;
     }
 
     function saveLocalVisits(visits) {
-        try { localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(visits)); } catch (e) {}
+        if (!Array.isArray(visits)) return;
+        try {
+            localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(visits));
+        } catch (e) {
+            console.warn('localStorage quota reached, pruning heavy base64 strings from older records:', e);
+            try {
+                // Keep photos for 3 newest visits, trim data URLs for older visits to ensure all records fit
+                const pruned = visits.map((v, i) => {
+                    if (i < 3) return v;
+                    return {
+                        ...v,
+                        visiting_card_front_url: (v.visiting_card_front_url && v.visiting_card_front_url.startsWith('http')) ? v.visiting_card_front_url : null,
+                        visiting_card_back_url: (v.visiting_card_back_url && v.visiting_card_back_url.startsWith('http')) ? v.visiting_card_back_url : null,
+                        visiting_card_url: (v.visiting_card_url && v.visiting_card_url.startsWith('http')) ? v.visiting_card_url : null,
+                        office_photo_url: (v.office_photo_url && v.office_photo_url.startsWith('http')) ? v.office_photo_url : null
+                    };
+                });
+                localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(pruned));
+            } catch (err2) {
+                console.error('Critical localStorage error:', err2);
+            }
+        }
+        // Always persist the full visits (with all photos) to IndexedDB
+        saveVisitsToIndexedDB(visits);
     }
 
     async function recordClientVisit(visitData) {
@@ -1050,9 +1177,10 @@
         const addrB = (visitData.address_option_b || visitData.location_address || '').trim();
 
         const newRecord = {
-            sales_rep_id: visitData.sales_rep_id || null,
-            sales_rep_name: (visitData.sales_rep_name || 'Anonymous Rep').trim(),
-            employee_id: (visitData.employee_id || '').trim(),
+            id: 'visit-' + Date.now(),
+            sales_rep_id: visitData.sales_rep_id || (State.currentUser?.id || 'rep-002'),
+            sales_rep_name: sanitizeRepName(visitData.sales_rep_name || State.currentUser?.name, visitData.employee_id, visitData.sales_rep_id),
+            employee_id: (visitData.employee_id || State.currentUser?.employee_id || '').trim(),
             business_name: bName,
             client_name: bName, // Alias
             address_option_a: addrA,
@@ -1083,6 +1211,7 @@
             try {
                 const { data, error } = await supabase.from('client_visits').insert([newRecord]).select().single();
                 if (!error && data) {
+                    sanitizeVisitRecord(data);
                     const local = getLocalVisits();
                     local.unshift(data);
                     saveLocalVisits(local);
@@ -1094,10 +1223,9 @@
         }
 
         const local = getLocalVisits();
-        const createdLocal = { ...newRecord, id: 'visit-' + Date.now() };
-        local.unshift(createdLocal);
+        local.unshift(newRecord);
         saveLocalVisits(local);
-        return createdLocal;
+        return newRecord;
     }
 
     // --------------------------------------------------------------------------
@@ -1166,7 +1294,22 @@
                 allVisits = getLocalVisits();
             }
         } else {
-            allVisits = getLocalVisits();
+            // Check IndexedDB for any visits saved that might not be in localStorage
+            try {
+                const idbVisits = await getVisitsFromIndexedDB();
+                const localVisits = getLocalVisits();
+                if (Array.isArray(idbVisits) && idbVisits.length > 0) {
+                    const map = new Map();
+                    localVisits.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+                    idbVisits.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+                    allVisits = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
+                    saveLocalVisits(allVisits);
+                } else {
+                    allVisits = localVisits;
+                }
+            } catch (err) {
+                allVisits = getLocalVisits();
+            }
         }
 
         // Cache all visits and compute cross-rep common accounts map
@@ -1264,6 +1407,7 @@
         if (supabase) {
             try { await supabase.from('client_visits').delete().eq('id', id); } catch (e) {}
         }
+        await deleteVisitFromIndexedDB(id);
         const local = getLocalVisits();
         const filtered = local.filter(v => v.id !== id);
         saveLocalVisits(filtered);
@@ -1424,6 +1568,8 @@
             'Remarks / Discussion',
             'Next Follow-up Date',
             'Meeting Status',
+            'Visiting Card Photo',
+            'Office Photo',
             'Visit Date & Time',
             'Sales Representative',
             'Employee ID',
@@ -1440,6 +1586,12 @@
             const addrA = v.address_option_a || v.client_address || '';
             const addrB = v.address_option_b || v.location_address || '';
             const mapsUrl = (v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : '';
+            const cardAttached = (v.visiting_card_front_url || v.visiting_card_url)
+                ? ((String(v.visiting_card_front_url || v.visiting_card_url).startsWith('http')) ? (v.visiting_card_front_url || v.visiting_card_url) : 'Yes (Saved on Device)')
+                : 'No';
+            const officeAttached = v.office_photo_url
+                ? ((String(v.office_photo_url).startsWith('http')) ? v.office_photo_url : 'Yes (Saved on Device)')
+                : 'No';
 
             return [
                 bName,
@@ -1448,6 +1600,8 @@
                 v.remarks || '',
                 v.follow_up_date || (v.status === 'Successful Closed' ? 'Deal Closed' : ''),
                 v.status || '',
+                cardAttached,
+                officeAttached,
                 dateStr,
                 v.sales_rep_name || '',
                 v.employee_id || '',
@@ -1471,6 +1625,8 @@
                 { wch: 38 }, // Remarks
                 { wch: 18 }, // Next Follow-up
                 { wch: 18 }, // Status
+                { wch: 22 }, // Visiting Card Photo
+                { wch: 22 }, // Office Photo
                 { wch: 20 }, // Date & Time
                 { wch: 20 }, // Sales Rep
                 { wch: 12 }, // Emp ID
@@ -4479,6 +4635,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const businessName = visit.business_name || visit.client_name || 'Business Name';
             const addrOptionA = visit.address_option_a || visit.client_address || 'Address not specified';
             const addrOptionB = visit.address_option_b || visit.location_address || '';
+            const hasCardFront = Boolean(visit.visiting_card_front_url || visit.visiting_card_url);
+            const hasCardBack = Boolean(visit.visiting_card_back_url);
+            const hasOfficePhoto = Boolean(visit.office_photo_url);
 
             // Common Account Overlap Check
             const normName = normalizeBusinessName(businessName);
@@ -4595,6 +4754,53 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                             </div>
                         ` : ''}
                     </div>
+
+                    <!-- ATTACHED PHOTOS & VISITING CARD -->
+                    ${(hasCardFront || hasCardBack || hasOfficePhoto) ? `
+                        <div class="pt-2 border-t border-slate-100 flex items-center justify-between flex-wrap gap-2 text-xs">
+                            <span class="text-slate-500 font-bold text-[11px] flex items-center gap-1.5">
+                                <i data-lucide="image" class="w-3.5 h-3.5 text-blue-600"></i> Attached Photos:
+                            </span>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                                ${hasCardFront ? `
+                                    <button type="button" onclick="window.viewVisitPhoto('${visit.id}', 'front')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs">
+                                        <i data-lucide="credit-card" class="w-3.5 h-3.5"></i> View Visiting Card
+                                    </button>
+                                ` : ''}
+                                ${hasCardBack ? `
+                                    <button type="button" onclick="window.viewVisitPhoto('${visit.id}', 'back')" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition-all shadow-xs">
+                                        <i data-lucide="file-text" class="w-3.5 h-3.5"></i> Card Back
+                                    </button>
+                                ` : ''}
+                                ${hasOfficePhoto ? `
+                                    <button type="button" onclick="window.viewVisitPhoto('${visit.id}', 'office')" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition-all shadow-xs">
+                                        <i data-lucide="camera" class="w-3.5 h-3.5"></i> Office Photo
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <!-- ADDRESS & GPS DETAILS (COLLAPSIBLE) -->
+                    ${(addrOptionA !== 'Address not specified' || addrOptionB || googleMapsLink) ? `
+                        <details class="text-xs text-slate-500 group">
+                            <summary class="cursor-pointer text-[11px] font-semibold text-slate-400 hover:text-slate-600 select-none flex items-center gap-1 list-none">
+                                <i data-lucide="chevron-right" class="w-3 h-3 transition-transform group-open:rotate-90"></i>
+                                <span>View Address & GPS Details</span>
+                            </summary>
+                            <div class="mt-2 pl-3 border-l-2 border-slate-200 space-y-1 py-1 text-slate-600">
+                                ${addrOptionA && addrOptionA !== 'Address not specified' ? `
+                                    <div><span class="font-bold text-slate-700">Address (Card/Manual):</span> ${escapeHtml(addrOptionA)}</div>
+                                ` : ''}
+                                ${addrOptionB ? `
+                                    <div><span class="font-bold text-slate-700">Location Address:</span> ${escapeHtml(addrOptionB)}</div>
+                                ` : ''}
+                                ${googleMapsLink ? `
+                                    <div><a href="${googleMapsLink}" target="_blank" class="inline-flex items-center gap-1 text-blue-600 hover:underline font-bold"><i data-lucide="map-pin" class="w-3 h-3"></i> Open Google Maps (${visit.latitude?.toFixed(4)}, ${visit.longitude?.toFixed(4)})</a></div>
+                                ` : ''}
+                            </div>
+                        </details>
+                    ` : ''}
                 </div>
             `;
         }).join('');
@@ -4602,6 +4808,32 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         container.innerHTML = html;
         initLucideIcons();
     }
+
+    window.viewVisitPhoto = function(visitId, type) {
+        const visits = State.visits || [];
+        const v = visits.find(x => x.id === visitId) || (getLocalVisits().find(x => x.id === visitId));
+        if (!v) {
+            alert('Visit record not found.');
+            return;
+        }
+        let url = null;
+        let title = 'Visiting Card';
+        if (type === 'front') {
+            url = v.visiting_card_front_url || v.visiting_card_url;
+            title = `Visiting Card Front - ${v.business_name || v.client_name || ''}`;
+        } else if (type === 'back') {
+            url = v.visiting_card_back_url;
+            title = `Visiting Card Back - ${v.business_name || v.client_name || ''}`;
+        } else if (type === 'office') {
+            url = v.office_photo_url;
+            title = `Office Photo - ${v.business_name || v.client_name || ''}`;
+        }
+        if (url) {
+            window.openImageLightbox(url, title);
+        } else {
+            alert('No photo attached for this record.');
+        }
+    };
 
     window.handleDeleteVisit = async function(id) {
         if (confirm('Are you sure you want to delete this visit record?')) {
