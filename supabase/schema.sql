@@ -1,14 +1,15 @@
 -- ==============================================================================
 -- SALES ERP & FIELD VISIT TRACKING SYSTEM - SUPABASE SQL SCHEMA
 -- Run this script in your Supabase Project's SQL Editor (Dashboard -> SQL Editor)
+-- Direct URL: https://supabase.com/dashboard/project/vdgmbqhjzpxwhndnpocq/sql/new
 -- ==============================================================================
 
--- 1. Enable UUID Extension
+-- 1. Enable Extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 2. Create Sales Representatives Table
 CREATE TABLE IF NOT EXISTS public.sales_reps (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id TEXT PRIMARY KEY DEFAULT ('rep-' || substr(md5(random()::text), 1, 8)),
     name VARCHAR(255) NOT NULL,
     email VARCHAR(255),
     phone VARCHAR(50),
@@ -22,14 +23,15 @@ CREATE TABLE IF NOT EXISTS public.sales_reps (
 
 -- 3. Create Client Visits Table
 CREATE TABLE IF NOT EXISTS public.client_visits (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    sales_rep_id UUID REFERENCES public.sales_reps(id) ON DELETE SET NULL,
+    id TEXT PRIMARY KEY,
+    sales_rep_id TEXT,
     sales_rep_name VARCHAR(255) NOT NULL,
+    employee_id VARCHAR(100),
     business_name VARCHAR(255) NOT NULL,
     client_name VARCHAR(255), -- Backwards compatibility alias
-    address_option_a TEXT NOT NULL, -- Visiting card or manually entered address
-    address_option_b TEXT, -- Auto-detected locked GPS address
-    client_address TEXT, -- General address fallback
+    address_option_a TEXT,    -- Visiting card or manually entered address
+    address_option_b TEXT,    -- Auto-detected locked GPS address
+    client_address TEXT,      -- General address fallback
     visit_time TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
     latitude DOUBLE PRECISION,
     longitude DOUBLE PRECISION,
@@ -44,14 +46,15 @@ CREATE TABLE IF NOT EXISTS public.client_visits (
     visiting_card_front_url TEXT,
     visiting_card_back_url TEXT,
     visiting_card_url TEXT, -- Backward compatibility
-    office_photo_url TEXT NOT NULL,
+    office_photo_url TEXT,
     ocr_raw_text TEXT,
     ocr_extracted_data JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- Migration for existing databases: Add new columns if table already exists
+-- Migrations for existing databases: Add columns safely if tables already exist
 ALTER TABLE public.sales_reps ADD COLUMN IF NOT EXISTS role_type VARCHAR(50) DEFAULT 'sales_rep';
+ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS employee_id VARCHAR(100);
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS address_option_a TEXT;
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS address_option_b TEXT;
@@ -59,37 +62,23 @@ ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS contact_person_email V
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS visiting_card_front_url TEXT;
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS visiting_card_back_url TEXT;
+ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS office_photo_url TEXT;
 
 -- Update business_name from client_name for legacy rows
 UPDATE public.client_visits SET business_name = client_name WHERE business_name IS NULL AND client_name IS NOT NULL;
 UPDATE public.client_visits SET address_option_a = client_address WHERE address_option_a IS NULL AND client_address IS NOT NULL;
-UPDATE public.sales_reps SET role_type = 'sr_sales_rep' WHERE LOWER(designation) LIKE '%senior%' OR LOWER(designation) LIKE '%sr%' OR LOWER(name) LIKE '%rahul%';
 
--- 4. Create Indexes for High Performance Queries & Duplicate Prevention
+-- 4. Create Indexes for High Performance Queries
 CREATE INDEX IF NOT EXISTS idx_visits_sales_rep_id ON public.client_visits(sales_rep_id);
 CREATE INDEX IF NOT EXISTS idx_visits_visit_time ON public.client_visits(visit_time DESC);
 CREATE INDEX IF NOT EXISTS idx_visits_status ON public.client_visits(status);
 CREATE INDEX IF NOT EXISTS idx_visits_business_name ON public.client_visits(business_name);
 
--- Prevent duplicate business names (case-insensitive)
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes WHERE indexname = 'idx_visits_unique_business_name'
-    ) THEN
-        BEGIN
-            CREATE UNIQUE INDEX idx_visits_unique_business_name ON public.client_visits (LOWER(TRIM(business_name)));
-        EXCEPTION WHEN unique_violation THEN
-            RAISE NOTICE 'Existing duplicate business names detected; unique index skipped until cleaned.';
-        END;
-    END IF;
-END $$;
-
 -- 5. Enable Row Level Security (RLS)
 ALTER TABLE public.sales_reps ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_visits ENABLE ROW LEVEL SECURITY;
 
--- 6. Create RLS Policies
+-- 6. Create RLS Policies (Full Read/Write Access for Sales ERP Mobile & Web)
 DROP POLICY IF EXISTS "Public access to sales reps" ON public.sales_reps;
 CREATE POLICY "Public access to sales reps" 
     ON public.sales_reps 
@@ -106,13 +95,17 @@ CREATE POLICY "Public access to client visits"
     USING (true) 
     WITH CHECK (true);
 
--- 7. Insert Initial Sample Sales Team Members
-INSERT INTO public.sales_reps (name, email, phone, employee_id, role_type, designation, is_active)
+-- 7. Insert/Seed Permanent Team Members
+INSERT INTO public.sales_reps (id, name, email, phone, employee_id, role_type, designation, is_active)
 VALUES 
-    ('Kapil Todi', 'kapil.todi@gmail.com', '+91 97696 61978', 'EMP-101', 'sr_sales_rep', 'Sr. Sales Rep', true),
-    ('Supriya Yadav', 'supriya.yadav@example.com', '+91 98765 43211', 'EMP-102', 'sales_rep', 'Sales Rep', true),
-    ('Kalyani Mundada', 'kalyani.mundada@example.com', '+91 98765 43212', 'EMP-103', 'sales_rep', 'Sales Rep', true)
-ON CONFLICT DO NOTHING;
+    ('rep-001', 'Kapil Todi', 'kapil.todi@gmail.com', '+91 97696 61978', 'EMP-101', 'sr_sales_rep', 'Sr. Sales Rep', true),
+    ('rep-002', 'Supriya Yadav', 'supriya.yadav@example.com', '+91 98765 43211', 'EMP-102', 'sales_rep', 'Sales Rep', true),
+    ('rep-003', 'Kalyani Mundada', 'kalyani.mundada@example.com', '+91 98765 43212', 'EMP-103', 'sales_rep', 'Sales Rep', true)
+ON CONFLICT (id) DO UPDATE SET 
+    name = EXCLUDED.name,
+    employee_id = EXCLUDED.employee_id,
+    role_type = EXCLUDED.role_type,
+    designation = EXCLUDED.designation;
 
 -- 8. Storage Bucket Setup
 INSERT INTO storage.buckets (id, name, public)

@@ -13,21 +13,38 @@
     // 1. CONFIGURATION SERVICE
     // --------------------------------------------------------------------------
     const CONFIG_STORAGE_KEY = 'sales_erp_supabase_config';
-    const DEFAULT_SUPABASE_URL = '';
-    const DEFAULT_SUPABASE_ANON_KEY = '';
+    const DEFAULT_SUPABASE_URL = 'https://vdgmbqhjzpxwhndnpocq.supabase.co';
+    const DEFAULT_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZkZ21icWhqenB4d2huZG5wb2NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM2Mzg5ODAsImV4cCI6MjEwOTIxNDk4MH0.cz3P49D_e4DMpS0JajQpp6Ids1WE8Ka-oLlL5ds29lE';
+
+    function getInitialConfigUrl() {
+        const stored = localStorage.getItem(`${CONFIG_STORAGE_KEY}_url`);
+        if (stored && stored.trim().startsWith('https://')) return stored.trim();
+        return DEFAULT_SUPABASE_URL;
+    }
+
+    function getInitialConfigKey() {
+        const stored = localStorage.getItem(`${CONFIG_STORAGE_KEY}_key`);
+        if (stored && stored.trim().length > 20) return stored.trim();
+        return DEFAULT_SUPABASE_KEY;
+    }
 
     const AppConfig = {
-        supabaseUrl: localStorage.getItem(`${CONFIG_STORAGE_KEY}_url`) || DEFAULT_SUPABASE_URL,
-        supabaseAnonKey: localStorage.getItem(`${CONFIG_STORAGE_KEY}_key`) || DEFAULT_SUPABASE_ANON_KEY,
+        supabaseUrl: getInitialConfigUrl(),
+        supabaseAnonKey: getInitialConfigKey(),
         storageBucketName: 'visit-photos',
 
         isConfigured() {
-            return Boolean(this.supabaseUrl && this.supabaseAnonKey && this.supabaseUrl.startsWith('https://'));
+            return Boolean(
+                this.supabaseUrl &&
+                this.supabaseAnonKey &&
+                this.supabaseUrl.trim().startsWith('https://') &&
+                this.supabaseAnonKey.trim().length > 20
+            );
         },
 
         saveConfig(url, key) {
-            this.supabaseUrl = (url || '').trim();
-            this.supabaseAnonKey = (key || '').trim();
+            this.supabaseUrl = (url || DEFAULT_SUPABASE_URL).trim().replace(/\/+$/, '');
+            this.supabaseAnonKey = (key || DEFAULT_SUPABASE_KEY).trim().replace(/^["']|["']$/g, '');
             localStorage.setItem(`${CONFIG_STORAGE_KEY}_url`, this.supabaseUrl);
             localStorage.setItem(`${CONFIG_STORAGE_KEY}_key`, this.supabaseAnonKey);
         },
@@ -1287,8 +1304,37 @@
                             } catch (err) {}
                         }
                     });
-                    allVisits = data;
-                    saveLocalVisits(data);
+
+                    // Keep local visits that might not yet be in Supabase (e.g. created offline or on mobile)
+                    const serverIds = new Set(data.map(v => String(v.id)));
+                    const local = getLocalVisits();
+                    let idb = [];
+                    try { idb = (await getVisitsFromIndexedDB()) || []; } catch(e) {}
+                    const localUnsynced = [...local, ...idb].filter(v => 
+                        v && v.id && 
+                        !serverIds.has(String(v.id)) && 
+                        !String(v.id).startsWith('mock-') && 
+                        !String(v.id).startsWith('visit-10')
+                    );
+
+                    // Combine server data and local unsynced data
+                    const map = new Map();
+                    data.forEach(v => map.set(String(v.id), sanitizeVisitRecord(v)));
+                    localUnsynced.forEach(v => {
+                        if (!map.has(String(v.id))) {
+                            map.set(String(v.id), sanitizeVisitRecord(v));
+                        }
+                    });
+
+                    allVisits = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
+                    saveLocalVisits(allVisits);
+
+                    // If there are unsynced visits on this device, push them to Supabase in the background
+                    if (localUnsynced.length > 0) {
+                        setTimeout(() => {
+                            syncLocalVisitsToCloud().catch(() => {});
+                        }, 500);
+                    }
                 } else {
                     allVisits = getLocalVisits();
                 }
@@ -6035,6 +6081,22 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         updateConnectionIndicator();
         updateCloudSyncBanner();
         await loadAndRenderVisits();
+
+        // Background auto-sync for visits recorded on mobile
+        if (AppConfig.isConfigured()) {
+            syncLocalVisitsToCloud().then(res => {
+                if (res && res.count > 0) {
+                    console.log(`Auto-synced ${res.count} visits to Supabase on startup`);
+                    loadAndRenderVisits();
+                }
+            }).catch(() => {});
+        }
+
+        window.addEventListener('online', () => {
+            if (AppConfig.isConfigured()) {
+                syncLocalVisitsToCloud().then(() => loadAndRenderVisits()).catch(() => {});
+            }
+        });
 
         // Auto-detect live GPS location on page launch so Option B is pre-populated
         captureLiveGpsLocation(false);
