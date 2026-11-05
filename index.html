@@ -547,34 +547,6 @@
                 </div>
             </div>
 
-            <!-- Cloud Sync & Multi-Device Live Status Banner -->
-            <div id="cloudSyncStatusBanner" class="p-3 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-xs">
-                <div class="flex items-center gap-2.5">
-                    <div id="cloudSyncIconBadge" class="w-8 h-8 rounded-xl bg-amber-200/80 text-amber-800 flex items-center justify-center shrink-0">
-                        <i data-lucide="cloud-off" class="w-4 h-4"></i>
-                    </div>
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span id="cloudSyncStatusTitle" class="font-extrabold text-xs">Device-Only Mode (Offline Storage)</span>
-                            <span id="cloudSyncDeviceTypeBadge" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-200/60 text-amber-900 border border-amber-300">This Device</span>
-                        </div>
-                        <p id="cloudSyncStatusDesc" class="text-amber-800 text-[11px] mt-0.5 leading-tight">
-                            Visits logged on this device are currently saved in local browser storage. Connect Supabase to sync live with PC & Admin automatically.
-                        </p>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2 shrink-0 w-full sm:w-auto">
-                    <button type="button" onclick="window.openDataTransferModal()" class="flex-1 sm:flex-none px-3 py-1.5 bg-white hover:bg-slate-50 border border-amber-300 text-amber-950 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors">
-                        <i data-lucide="arrow-left-right" class="w-3.5 h-3.5 text-amber-700"></i>
-                        <span>Sync / Transfer</span>
-                    </button>
-                    <button type="button" onclick="window.openCloudSetupModal()" class="flex-1 sm:flex-none px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition-colors">
-                        <i data-lucide="cloud-lightning" class="w-3.5 h-3.5"></i>
-                        <span>Connect Cloud</span>
-                    </button>
-                </div>
-            </div>
-
             <!-- Summary KPI Cards (5 Cards: Total, Closed, Followups, Conversion %, Common Accounts) -->
             <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <div class="bg-white p-3.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -2041,6 +2013,6 @@
     </div>
 
     <!-- Main Application Script -->
-    <script src="js/app.js?v=2.5.1"></script>
+    <script src="js/app.js?v=2.5.2"></script>
 </body>
 </html>
