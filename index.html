@@ -28,8 +28,13 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
-    <!-- Supabase JS CDN -->
+    <!-- Supabase JS CDN with automatic fallback -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script>
+        if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+            document.write('<script src="https://unpkg.com/@supabase/supabase-js@2"><\/script>');
+        }
+    </script>
 
     <!-- Tesseract.js CDN for in-browser OCR -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
@@ -2013,6 +2018,6 @@
     </div>
 
     <!-- Main Application Script -->
-    <script src="js/app.js?v=2.5.3"></script>
+    <script src="js/app.js?v=2.6.0"></script>
 </body>
 </html>

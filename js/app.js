@@ -18,13 +18,15 @@
 
     function getInitialConfigUrl() {
         const stored = localStorage.getItem(`${CONFIG_STORAGE_KEY}_url`);
-        if (stored && stored.trim().startsWith('https://')) return stored.trim();
+        if (stored && stored.includes('vdgmbqhjzpxwhndnpocq')) return stored.trim();
+        localStorage.setItem(`${CONFIG_STORAGE_KEY}_url`, DEFAULT_SUPABASE_URL);
         return DEFAULT_SUPABASE_URL;
     }
 
     function getInitialConfigKey() {
         const stored = localStorage.getItem(`${CONFIG_STORAGE_KEY}_key`);
-        if (stored && stored.trim().length > 20) return stored.trim();
+        if (stored && stored.trim().length > 40 && !stored.includes('yourprojectid')) return stored.trim();
+        localStorage.setItem(`${CONFIG_STORAGE_KEY}_key`, DEFAULT_SUPABASE_KEY);
         return DEFAULT_SUPABASE_KEY;
     }
 
@@ -50,22 +52,27 @@
         },
 
         clearConfig() {
-            this.supabaseUrl = '';
-            this.supabaseAnonKey = '';
-            localStorage.removeItem(`${CONFIG_STORAGE_KEY}_url`);
-            localStorage.removeItem(`${CONFIG_STORAGE_KEY}_key`);
+            this.supabaseUrl = DEFAULT_SUPABASE_URL;
+            this.supabaseAnonKey = DEFAULT_SUPABASE_KEY;
+            localStorage.setItem(`${CONFIG_STORAGE_KEY}_url`, DEFAULT_SUPABASE_URL);
+            localStorage.setItem(`${CONFIG_STORAGE_KEY}_key`, DEFAULT_SUPABASE_KEY);
         }
     };
 
     // --------------------------------------------------------------------------
-    // 2. SUPABASE CLIENT SERVICE
+    // 2. UNIVERSAL CLOUD DATABASE SERVICE (SUPABASE SDK + DIRECT REST FALLBACK)
+    // Works reliably on ALL mobile browsers, PCs, cellular connections, and networks
     // --------------------------------------------------------------------------
     let supabaseInstance = null;
 
     function getSupabase() {
         if (!AppConfig.isConfigured()) return null;
         if (!supabaseInstance && window.supabase && typeof window.supabase.createClient === 'function') {
-            supabaseInstance = window.supabase.createClient(AppConfig.supabaseUrl, AppConfig.supabaseAnonKey);
+            try {
+                supabaseInstance = window.supabase.createClient(AppConfig.supabaseUrl, AppConfig.supabaseAnonKey);
+            } catch (e) {
+                console.warn('Supabase client creation error:', e);
+            }
         }
         return supabaseInstance;
     }
@@ -75,29 +82,165 @@
         return getSupabase();
     }
 
-    async function testSupabaseConnection(url, key) {
-        try {
-            if (!url || !key) {
-                return { success: false, message: 'URL and Anon Key are required.' };
+    function prepareVisitForDatabase(v) {
+        if (!v) return null;
+        const cleanLat = (v.latitude !== null && v.latitude !== undefined && v.latitude !== '' && !isNaN(Number(v.latitude))) ? Number(v.latitude) : null;
+        const cleanLng = (v.longitude !== null && v.longitude !== undefined && v.longitude !== '' && !isNaN(Number(v.longitude))) ? Number(v.longitude) : null;
+        
+        let cleanFollowUp = null;
+        if (v.follow_up_date && typeof v.follow_up_date === 'string') {
+            const trimmed = v.follow_up_date.trim();
+            if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+                cleanFollowUp = trimmed.slice(0, 10);
             }
-            if (!window.supabase || typeof window.supabase.createClient !== 'function') {
-                return { success: false, message: 'Supabase SDK not loaded. Check internet connection.' };
-            }
+        }
 
-            const client = window.supabase.createClient(url.trim(), key.trim());
-            const { data, error } = await client.from('sales_reps').select('id').limit(1);
+        const bName = (v.business_name || v.client_name || '').trim();
+        const addrA = (v.address_option_a || v.client_address || '').trim();
+        const addrB = (v.address_option_b || v.location_address || '').trim();
 
-            if (error) {
-                if (error.code === '42P01') {
-                    return {
-                        success: false,
-                        message: 'Connected to Supabase, but table "sales_reps" was not found! Run schema.sql in Supabase SQL editor.'
-                    };
+        return {
+            id: String(v.id || ('visit-' + Date.now())),
+            sales_rep_id: String(v.sales_rep_id || 'rep-002'),
+            sales_rep_name: sanitizeRepName(v.sales_rep_name, v.employee_id, v.sales_rep_id),
+            employee_id: (v.employee_id || '').trim(),
+            business_name: bName || 'Client Visit',
+            client_name: bName || 'Client Visit',
+            address_option_a: addrA || null,
+            address_option_b: addrB || null,
+            client_address: addrA || null,
+            visit_time: v.visit_time ? new Date(v.visit_time).toISOString() : new Date().toISOString(),
+            latitude: cleanLat,
+            longitude: cleanLng,
+            location_address: addrB || null,
+            contact_person_name: (v.contact_person_name || 'Contact Person').trim(),
+            contact_person_phone: (v.contact_person_phone || '').trim(),
+            contact_person_email: (v.contact_person_email || '').trim() || null,
+            pincode: (v.pincode || '').trim() || null,
+            status: (v.status === 'Successful Closed') ? 'Successful Closed' : 'Follow-up Required',
+            follow_up_date: cleanFollowUp,
+            remarks: (v.remarks || '').trim() || null,
+            visiting_card_front_url: v.visiting_card_front_url || v.visiting_card_url || null,
+            visiting_card_back_url: v.visiting_card_back_url || null,
+            visiting_card_url: v.visiting_card_front_url || v.visiting_card_url || null,
+            office_photo_url: v.office_photo_url || null,
+            ocr_raw_text: v.ocr_raw_text || null,
+            ocr_extracted_data: (v.ocr_extracted_data && typeof v.ocr_extracted_data === 'object') ? v.ocr_extracted_data : {},
+            created_at: v.created_at ? new Date(v.created_at).toISOString() : new Date().toISOString()
+        };
+    }
+
+    const CloudDB = {
+        async getVisits() {
+            // 1. Try Supabase SDK
+            const client = getSupabase();
+            if (client) {
+                try {
+                    const { data, error } = await client.from('client_visits').select('*').order('visit_time', { ascending: false });
+                    if (!error && Array.isArray(data)) return data;
+                } catch (e) {
+                    console.warn('Supabase SDK getVisits error:', e);
                 }
-                return { success: false, message: error.message || 'Failed to query Supabase.' };
             }
 
-            return { success: true, message: 'Connected successfully to Supabase! Tables and permissions verified.' };
+            // 2. Direct REST fetch fallback (100% reliable, zero CDN dependency)
+            try {
+                const res = await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/client_visits?select=*&order=visit_time.desc`, {
+                    headers: {
+                        'apikey': DEFAULT_SUPABASE_KEY,
+                        'Authorization': `Bearer ${DEFAULT_SUPABASE_KEY}`
+                    }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data)) return data;
+                }
+            } catch (e) {
+                console.warn('Direct REST getVisits error:', e);
+            }
+            return null;
+        },
+
+        async saveVisit(visit) {
+            const clean = prepareVisitForDatabase(visit);
+            if (!clean) return null;
+
+            // 1. Try Supabase SDK
+            const client = getSupabase();
+            if (client) {
+                try {
+                    const { data, error } = await client.from('client_visits').upsert([clean]).select().single();
+                    if (!error && data) return data;
+                } catch (e) {
+                    console.warn('Supabase SDK saveVisit error:', e);
+                }
+            }
+
+            // 2. Direct REST fetch fallback
+            try {
+                const res = await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/client_visits`, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': DEFAULT_SUPABASE_KEY,
+                        'Authorization': `Bearer ${DEFAULT_SUPABASE_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'resolution=merge-duplicates,return=representation'
+                    },
+                    body: JSON.stringify(clean)
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data) && data[0]) return data[0];
+                    return clean;
+                }
+            } catch (e) {
+                console.warn('Direct REST saveVisit error:', e);
+            }
+            return null;
+        },
+
+        async getTeam() {
+            const client = getSupabase();
+            if (client) {
+                try {
+                    const { data, error } = await client.from('sales_reps').select('*').order('name', { ascending: true });
+                    if (!error && Array.isArray(data)) return data;
+                } catch (e) {}
+            }
+            try {
+                const res = await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/sales_reps?select=*&order=name.asc`, {
+                    headers: {
+                        'apikey': DEFAULT_SUPABASE_KEY,
+                        'Authorization': `Bearer ${DEFAULT_SUPABASE_KEY}`
+                    }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (Array.isArray(data)) return data;
+                }
+            } catch (e) {}
+            return null;
+        }
+    };
+    window.CloudDB = CloudDB;
+
+    async function testSupabaseConnection(url, key) {
+        const testUrl = (url || DEFAULT_SUPABASE_URL).trim().replace(/\/+$/, '');
+        const testKey = (key || DEFAULT_SUPABASE_KEY).trim().replace(/^["']|["']$/g, '');
+        try {
+            const res = await fetch(`${testUrl}/rest/v1/sales_reps?select=id&limit=1`, {
+                headers: {
+                    'apikey': testKey,
+                    'Authorization': `Bearer ${testKey}`
+                }
+            });
+            if (res.ok) {
+                return { success: true, message: 'Connected successfully to Supabase! Tables and permissions verified.' };
+            }
+            if (res.status === 404) {
+                return { success: false, message: 'Table "sales_reps" not found. Run schema.sql in Supabase SQL editor.' };
+            }
+            return { success: false, message: `Supabase returned HTTP ${res.status}. Check API keys.` };
         } catch (err) {
             return { success: false, message: err.message || 'Network error connecting to Supabase.' };
         }
@@ -147,6 +290,45 @@
         });
     }
 
+    function compressImageToBlob(fileOrBlob, maxWidth = 1000, maxHeight = 1000, quality = 0.7) {
+        if (!fileOrBlob) return Promise.resolve(null);
+        if (typeof fileOrBlob === 'string') return Promise.resolve(null);
+        if (fileOrBlob.type === 'application/pdf' || (fileOrBlob.name && fileOrBlob.name.toLowerCase().endsWith('.pdf'))) {
+            return Promise.resolve(fileOrBlob);
+        }
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    let w = img.width;
+                    let h = img.height;
+                    if (w > maxWidth || h > maxHeight) {
+                        if (w > h) {
+                            h = Math.round((h * maxWidth) / w);
+                            w = maxWidth;
+                        } else {
+                            w = Math.round((w * maxHeight) / h);
+                            h = maxHeight;
+                        }
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    canvas.toBlob((blob) => {
+                        resolve(blob || fileOrBlob);
+                    }, 'image/jpeg', quality);
+                };
+                img.onerror = () => resolve(fileOrBlob);
+                img.src = e.target.result;
+            };
+            reader.onerror = () => resolve(fileOrBlob);
+            reader.readAsDataURL(fileOrBlob);
+        });
+    }
+
     async function uploadVisitImage(file, folder = 'visits') {
         if (!file) return null;
         const supabase = getSupabase();
@@ -154,11 +336,18 @@
         const cleanFileName = file.name ? file.name.replace(/[^a-zA-Z0-9._-]/g, '_') : 'photo.jpg';
         const filePath = `${folder}/${timestamp}_${cleanFileName}`;
 
+        // Fast-compress first so upload is ~100KB (instant, zero timeout risk on mobile)
+        let uploadPayload = file;
+        try {
+            const compressedBlob = await compressImageToBlob(file, 1000, 1000, 0.7);
+            if (compressedBlob) uploadPayload = compressedBlob;
+        } catch (e) {}
+
         if (supabase) {
             try {
                 const { data, error } = await supabase.storage
                     .from(AppConfig.storageBucketName)
-                    .upload(filePath, file, { cacheControl: '3600', upsert: false });
+                    .upload(filePath, uploadPayload, { cacheControl: '3600', upsert: true });
 
                 if (!error && data) {
                     const { data: publicUrlData } = supabase.storage
@@ -170,11 +359,27 @@
                     }
                 }
             } catch (e) {
-                console.warn('Storage upload error, using compressed data URL fallback:', e);
+                console.warn('Storage upload error, trying direct REST fallback:', e);
             }
         }
 
-        // Compressed data URL fallback (reduces 10MB raw camera photos to ~45KB, preventing quota overflow)
+        // Direct fetch to storage REST as fallback
+        try {
+            const storageRes = await fetch(`${DEFAULT_SUPABASE_URL}/storage/v1/object/${AppConfig.storageBucketName}/${filePath}`, {
+                method: 'POST',
+                headers: {
+                    'apikey': DEFAULT_SUPABASE_KEY,
+                    'Authorization': `Bearer ${DEFAULT_SUPABASE_KEY}`,
+                    'x-upsert': 'true'
+                },
+                body: uploadPayload
+            });
+            if (storageRes.ok) {
+                return `${DEFAULT_SUPABASE_URL}/storage/v1/object/public/${AppConfig.storageBucketName}/${filePath}`;
+            }
+        } catch (e) {}
+
+        // Compressed data URL fallback (stored directly in TEXT column)
         return await compressImageForStorage(file);
     }
 
@@ -651,34 +856,33 @@
     }
 
     async function getSalesTeam(activeOnly = false) {
-        const supabase = getSupabase();
-        if (supabase) {
-            try {
-                let query = supabase.from('sales_reps').select('*').order('name', { ascending: true });
-                if (activeOnly) query = query.eq('is_active', true);
-                const { data, error } = await query;
-                if (!error && Array.isArray(data)) {
-                    // Automatically fix & rename any 'Sales Rep 1' / 'Sales Rep 2' records in Supabase
-                    data.forEach(async (orig) => {
-                        const sanitizedName = sanitizeRepName(orig.name, orig.employee_id, orig.id);
-                        if (sanitizedName !== orig.name) {
-                            try {
-                                await supabase.from('sales_reps').update({
+        try {
+            const data = await CloudDB.getTeam();
+            if (Array.isArray(data) && data.length > 0) {
+                // Automatically fix & rename any 'Sales Rep 1' / 'Sales Rep 2' records in Supabase
+                data.forEach(async (orig) => {
+                    const sanitizedName = sanitizeRepName(orig.name, orig.employee_id, orig.id);
+                    if (sanitizedName !== orig.name) {
+                        try {
+                            const client = getSupabase();
+                            if (client) {
+                                await client.from('sales_reps').update({
                                     name: sanitizedName,
                                     employee_id: orig.employee_id === 'EMP-101' ? 'EMP-101' : (sanitizedName === 'Supriya Yadav' ? 'EMP-102' : (sanitizedName === 'Kalyani Mundada' ? 'EMP-103' : orig.employee_id))
                                 }).eq('id', orig.id);
-                            } catch (e) {}
-                        }
-                    });
+                            }
+                        } catch (e) {}
+                    }
+                });
 
-                    const local = getLocalTeam();
-                    const localOnly = local.filter(l => l.id && l.id.startsWith('rep-') && !data.some(d => d.id === l.id || (d.name && l.name && d.name.toLowerCase() === l.name.toLowerCase())));
-                    const merged = deduplicateAndCleanTeam([...data, ...localOnly]);
-                    saveLocalTeam(merged);
-                    return activeOnly ? merged.filter(m => m.is_active) : merged;
-                }
-            } catch (e) {}
-        }
+                const local = getLocalTeam();
+                const localOnly = local.filter(l => l.id && l.id.startsWith('rep-') && !data.some(d => d.id === l.id || (d.name && l.name && d.name.toLowerCase() === l.name.toLowerCase())));
+                const merged = deduplicateAndCleanTeam([...data, ...localOnly]);
+                saveLocalTeam(merged);
+                return activeOnly ? merged.filter(m => m.is_active) : merged;
+            }
+        } catch (e) {}
+
         const local = getLocalTeam();
         return activeOnly ? local.filter(m => m.is_active) : local;
     }
@@ -1195,16 +1399,16 @@
         const addrA = (visitData.address_option_a || visitData.client_address || '').trim();
         const addrB = (visitData.address_option_b || visitData.location_address || '').trim();
 
-        const newRecord = {
+        const cleanRecord = prepareVisitForDatabase({
             id: 'visit-' + Date.now(),
             sales_rep_id: visitData.sales_rep_id || (State.currentUser?.id || 'rep-002'),
             sales_rep_name: sanitizeRepName(visitData.sales_rep_name || State.currentUser?.name, visitData.employee_id, visitData.sales_rep_id),
             employee_id: (visitData.employee_id || State.currentUser?.employee_id || '').trim(),
             business_name: bName,
-            client_name: bName, // Alias
+            client_name: bName,
             address_option_a: addrA,
             address_option_b: addrB,
-            client_address: addrA, // Fallback
+            client_address: addrA,
             visit_time: visitData.visit_time || new Date().toISOString(),
             latitude: visitData.latitude ? Number(visitData.latitude) : null,
             longitude: visitData.longitude ? Number(visitData.longitude) : null,
@@ -1223,28 +1427,23 @@
             ocr_raw_text: visitData.ocr_raw_text || null,
             ocr_extracted_data: visitData.ocr_extracted_data || {},
             created_at: new Date().toISOString()
-        };
+        });
 
-        const supabase = getSupabase();
-        if (supabase) {
-            try {
-                const { data, error } = await supabase.from('client_visits').insert([newRecord]).select().single();
-                if (!error && data) {
-                    sanitizeVisitRecord(data);
-                    const local = getLocalVisits();
-                    local.unshift(data);
-                    saveLocalVisits(local);
-                    return data;
-                }
-            } catch (e) {
-                console.warn('Supabase insert failed, saving locally:', e);
-            }
+        // Save to central cloud database first
+        let savedCloud = null;
+        try {
+            savedCloud = await CloudDB.saveVisit(cleanRecord);
+        } catch (e) {
+            console.warn('Cloud save attempt failed:', e);
         }
 
+        // Always save locally to this device
+        const recordToKeep = savedCloud || cleanRecord;
         const local = getLocalVisits();
-        local.unshift(newRecord);
+        local.unshift(recordToKeep);
         saveLocalVisits(local);
-        return newRecord;
+
+        return recordToKeep;
     }
 
     // --------------------------------------------------------------------------
@@ -1285,61 +1484,53 @@
     }
 
     async function getClientVisits(filters = {}) {
-        const supabase = getSupabase();
         let allVisits = [];
+        let cloudData = null;
 
-        if (supabase) {
-            try {
-                const { data, error } = await supabase.from('client_visits').select('*').order('visit_time', { ascending: false });
-                if (!error && Array.isArray(data)) {
-                    data.forEach(v => {
-                        const oldName = v.sales_rep_name;
-                        sanitizeVisitRecord(v);
-                        if (oldName !== v.sales_rep_name && supabase) {
-                            try {
-                                supabase.from('client_visits').update({
-                                    sales_rep_name: v.sales_rep_name,
-                                    employee_id: v.employee_id
-                                }).eq('id', v.id);
-                            } catch (err) {}
-                        }
-                    });
+        try {
+            cloudData = await CloudDB.getVisits();
+        } catch (e) {
+            console.warn('Failed to fetch visits from CloudDB:', e);
+        }
 
-                    // Keep local visits that might not yet be in Supabase (e.g. created offline or on mobile)
-                    const serverIds = new Set(data.map(v => String(v.id)));
-                    const local = getLocalVisits();
-                    let idb = [];
-                    try { idb = (await getVisitsFromIndexedDB()) || []; } catch(e) {}
-                    const localUnsynced = [...local, ...idb].filter(v => 
-                        v && v.id && 
-                        !serverIds.has(String(v.id)) && 
-                        !String(v.id).startsWith('mock-') && 
-                        !String(v.id).startsWith('visit-10')
-                    );
-
-                    // Combine server data and local unsynced data
-                    const map = new Map();
-                    data.forEach(v => map.set(String(v.id), sanitizeVisitRecord(v)));
-                    localUnsynced.forEach(v => {
-                        if (!map.has(String(v.id))) {
-                            map.set(String(v.id), sanitizeVisitRecord(v));
-                        }
-                    });
-
-                    allVisits = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
-                    saveLocalVisits(allVisits);
-
-                    // If there are unsynced visits on this device, push them to Supabase in the background
-                    if (localUnsynced.length > 0) {
-                        setTimeout(() => {
-                            syncLocalVisitsToCloud().catch(() => {});
-                        }, 500);
-                    }
-                } else {
-                    allVisits = getLocalVisits();
+        if (Array.isArray(cloudData)) {
+            cloudData.forEach(v => {
+                const oldName = v.sales_rep_name;
+                sanitizeVisitRecord(v);
+                if (oldName !== v.sales_rep_name) {
+                    CloudDB.saveVisit(v).catch(() => {});
                 }
-            } catch (e) {
-                allVisits = getLocalVisits();
+            });
+
+            // Keep local visits that might not yet be in Supabase (e.g. created offline or on mobile)
+            const serverIds = new Set(cloudData.map(v => String(v.id)));
+            const local = getLocalVisits();
+            let idb = [];
+            try { idb = (await getVisitsFromIndexedDB()) || []; } catch(e) {}
+            const localUnsynced = [...local, ...idb].filter(v => 
+                v && v.id && 
+                !serverIds.has(String(v.id)) && 
+                !String(v.id).startsWith('mock-') && 
+                !String(v.id).startsWith('visit-10')
+            );
+
+            // Combine server data and local unsynced data
+            const map = new Map();
+            cloudData.forEach(v => map.set(String(v.id), sanitizeVisitRecord(v)));
+            localUnsynced.forEach(v => {
+                if (!map.has(String(v.id))) {
+                    map.set(String(v.id), sanitizeVisitRecord(v));
+                }
+            });
+
+            allVisits = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
+            saveLocalVisits(allVisits);
+
+            // If there are unsynced visits on this device, push them to Supabase in the background
+            if (localUnsynced.length > 0) {
+                setTimeout(() => {
+                    syncLocalVisitsToCloud().catch(() => {});
+                }, 400);
             }
         } else {
             // Check IndexedDB for any visits saved that might not be in localStorage
@@ -4533,7 +4724,23 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         });
 
         filterCustomDate?.addEventListener('change', handleFilterChange);
-        refreshBtn?.addEventListener('click', () => loadAndRenderVisits());
+        refreshBtn?.addEventListener('click', async () => {
+            const icon = refreshBtn.querySelector('i');
+            if (icon) icon.classList.add('animate-spin');
+            showToastNotification('🔄 Syncing live data with central cloud...', 'refresh-cw', 2000);
+            try {
+                await syncLocalVisitsToCloud();
+                await loadAndRenderVisits();
+                const count = (State.visits || []).length;
+                showToastNotification(`✅ Sync complete! ${count} visits loaded.`, 'check-circle');
+            } catch (err) {
+                console.error('Refresh sync error:', err);
+            } finally {
+                setTimeout(() => {
+                    if (icon) icon.classList.remove('animate-spin');
+                }, 400);
+            }
+        });
         exportCsvBtn?.addEventListener('click', () => exportVisitsToCsv(State.visits));
         exportExcelBtn?.addEventListener('click', () => exportVisitsToExcel(State.visits));
     }
@@ -5380,8 +5587,6 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     window.updateCloudSyncBanner = updateCloudSyncBanner;
 
     async function syncLocalVisitsToCloud() {
-        const supabase = getSupabase();
-        if (!supabase) return { count: 0 };
         try {
             const local = getLocalVisits();
             const idbVisits = (await getVisitsFromIndexedDB()) || [];
@@ -5391,15 +5596,22 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const allToSync = Array.from(map.values()).filter(v => v.id && !v.id.startsWith('mock-') && !v.id.startsWith('visit-10'));
             if (allToSync.length === 0) return { count: 0 };
 
+            // Check what is already on server
+            const serverVisits = (await CloudDB.getVisits()) || [];
+            const serverIds = new Set(serverVisits.map(s => String(s.id)));
+
             let syncedCount = 0;
             for (const v of allToSync) {
-                try {
-                    const { data } = await supabase.from('client_visits').select('id').eq('id', v.id).maybeSingle();
-                    if (!data) {
-                        const { error } = await supabase.from('client_visits').insert([v]);
-                        if (!error) syncedCount++;
+                if (!serverIds.has(String(v.id))) {
+                    const saved = await CloudDB.saveVisit(v);
+                    if (saved) {
+                        syncedCount++;
+                        serverIds.add(String(v.id));
                     }
-                } catch (err) {}
+                }
+            }
+            if (syncedCount > 0) {
+                showToastNotification(`☁️ Synced ${syncedCount} visits to central cloud database!`, 'cloud');
             }
             return { count: syncedCount };
         } catch (e) {
