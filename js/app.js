@@ -199,6 +199,45 @@
             return null;
         },
 
+        async deleteVisit(id) {
+            if (!id) return false;
+            const strId = String(id).trim();
+            let deletedOnServer = false;
+
+            // 1. Try Supabase SDK
+            const client = getSupabase();
+            if (client) {
+                try {
+                    const { error } = await client.from('client_visits').delete().eq('id', strId);
+                    if (!error) {
+                        deletedOnServer = true;
+                    }
+                } catch (e) {
+                    console.warn('Supabase SDK deleteVisit error:', e);
+                }
+            }
+
+            // 2. Direct REST fetch fallback (guarantees deletion even if SDK is uninitialized)
+            const url = (AppConfig.supabaseUrl || DEFAULT_SUPABASE_URL).trim().replace(/\/+$/, '');
+            const key = (AppConfig.supabaseAnonKey || DEFAULT_SUPABASE_KEY).trim();
+            try {
+                const res = await fetch(`${url}/rest/v1/client_visits?id=eq.${encodeURIComponent(strId)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'apikey': key,
+                        'Authorization': `Bearer ${key}`
+                    }
+                });
+                if (res.ok) {
+                    deletedOnServer = true;
+                }
+            } catch (e) {
+                console.warn('Direct REST deleteVisit error:', e);
+            }
+
+            return deletedOnServer;
+        },
+
         async getTeam() {
             const client = getSupabase();
             if (client) {
@@ -1274,19 +1313,112 @@
         });
     }
 
-    async function saveVisitsToIndexedDB(visits) {
-        if (!Array.isArray(visits) || visits.length === 0) return;
-        const db = await openVisitsIDB();
-        if (!db) return;
+    // --------------------------------------------------------------------------
+    // TOMBSTONE & OFFLINE PENDING SYNC REGISTRY
+    // --------------------------------------------------------------------------
+    const PENDING_SYNC_KEY = 'sales_erp_pending_sync_ids';
+    const DELETED_VISITS_KEY = 'sales_erp_deleted_visit_ids';
+
+    function getPendingSyncIds() {
         try {
-            const tx = db.transaction(IDB_STORE, 'readwrite');
-            const store = tx.objectStore(IDB_STORE);
-            for (const v of visits) {
-                if (v && v.id) store.put(v);
+            const raw = localStorage.getItem(PENDING_SYNC_KEY);
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) return new Set(arr.map(String));
             }
-        } catch (e) {
-            console.warn('IDB put error:', e);
-        }
+        } catch (e) {}
+        return new Set();
+    }
+
+    function addPendingSyncId(id) {
+        if (!id) return;
+        try {
+            const set = getPendingSyncIds();
+            set.add(String(id));
+            localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(Array.from(set)));
+        } catch (e) {}
+    }
+
+    function removePendingSyncId(id) {
+        if (!id) return;
+        try {
+            const set = getPendingSyncIds();
+            set.delete(String(id));
+            localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(Array.from(set)));
+        } catch (e) {}
+    }
+
+    function getDeletedVisitIds() {
+        try {
+            const raw = localStorage.getItem(DELETED_VISITS_KEY);
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) return new Set(arr.map(String));
+            }
+        } catch (e) {}
+        return new Set();
+    }
+
+    function recordDeletedVisitId(id) {
+        if (!id) return;
+        try {
+            const set = getDeletedVisitIds();
+            set.add(String(id));
+            const arr = Array.from(set).slice(-1000);
+            localStorage.setItem(DELETED_VISITS_KEY, JSON.stringify(arr));
+        } catch (e) {}
+    }
+
+    function isVisitDeleted(id) {
+        if (!id) return false;
+        return getDeletedVisitIds().has(String(id));
+    }
+
+    async function saveVisitsToIndexedDB(visits) {
+        if (!Array.isArray(visits)) return false;
+        const db = await openVisitsIDB();
+        if (!db) return false;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(IDB_STORE, 'readwrite');
+                const store = tx.objectStore(IDB_STORE);
+                const deletedIds = getDeletedVisitIds();
+
+                // 1. Purge all tombstoned records
+                for (const delId of deletedIds) {
+                    try { store.delete(delId); } catch (e) {}
+                }
+
+                // 2. Put active records
+                const activeIds = new Set();
+                for (const v of visits) {
+                    if (v && v.id && !deletedIds.has(String(v.id))) {
+                        activeIds.add(String(v.id));
+                        store.put(v);
+                    }
+                }
+
+                // 3. Clear any records in IDB that are neither in active visits nor pending
+                const pendingIds = getPendingSyncIds();
+                const req = store.getAllKeys();
+                req.onsuccess = () => {
+                    const keys = req.result || [];
+                    for (const k of keys) {
+                        const strK = String(k);
+                        if (!activeIds.has(strK) && !pendingIds.has(strK)) {
+                            store.delete(k);
+                        }
+                    }
+                };
+
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => resolve(false);
+                tx.onabort = () => resolve(false);
+            } catch (e) {
+                console.warn('IDB put error:', e);
+                resolve(false);
+            }
+        });
     }
 
     async function getVisitsFromIndexedDB() {
@@ -1297,7 +1429,12 @@
                 const tx = db.transaction(IDB_STORE, 'readonly');
                 const store = tx.objectStore(IDB_STORE);
                 const req = store.getAll();
-                req.onsuccess = () => resolve(req.result || []);
+                req.onsuccess = () => {
+                    const results = req.result || [];
+                    const deletedIds = getDeletedVisitIds();
+                    const filtered = results.filter(v => v && v.id && !deletedIds.has(String(v.id)));
+                    resolve(filtered);
+                };
                 req.onerror = () => resolve(null);
             } catch (e) {
                 resolve(null);
@@ -1307,61 +1444,65 @@
 
     async function deleteVisitFromIndexedDB(id) {
         const db = await openVisitsIDB();
-        if (!db || !id) return;
-        try {
-            const tx = db.transaction(IDB_STORE, 'readwrite');
-            tx.objectStore(IDB_STORE).delete(id);
-        } catch (e) {}
+        if (!db || !id) return false;
+        return new Promise((resolve) => {
+            try {
+                const tx = db.transaction(IDB_STORE, 'readwrite');
+                const store = tx.objectStore(IDB_STORE);
+                store.delete(String(id));
+                if (typeof id === 'number') store.delete(id);
+                if (!isNaN(Number(id))) store.delete(Number(id));
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => resolve(false);
+                tx.onabort = () => resolve(false);
+            } catch (e) {
+                resolve(false);
+            }
+        });
     }
 
     function getLocalVisits() {
+        const deletedIds = getDeletedVisitIds();
         try {
             const stored = localStorage.getItem(VISITS_STORAGE_KEY);
-            if (stored) {
+            if (stored !== null) {
                 const parsed = JSON.parse(stored);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    let mod = false;
-                    parsed.forEach(v => {
+                if (Array.isArray(parsed)) {
+                    const filtered = parsed.filter(v => v && v.id && !deletedIds.has(String(v.id)));
+                    let mod = (filtered.length !== parsed.length);
+                    filtered.forEach(v => {
                         const oldName = v.sales_rep_name;
                         sanitizeVisitRecord(v);
                         if (v.sales_rep_name !== oldName) mod = true;
                     });
-
-                    // Ensure Supriya has visits in local storage if missing
-                    const hasSupriya = parsed.some(v => v.sales_rep_name === 'Supriya Yadav');
-                    if (!hasSupriya) {
-                        const supriyaSamples = DEFAULT_SAMPLE_VISITS.filter(v => v.sales_rep_id === 'rep-002').map(v => sanitizeVisitRecord({ ...v, sales_rep_name: 'Supriya Yadav' }));
-                        parsed.push(...supriyaSamples);
-                        mod = true;
+                    if (mod) {
+                        try {
+                            localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(filtered));
+                        } catch (e) {}
                     }
-
-                    // Ensure Kalyani has visits in local storage if missing
-                    const hasKalyani = parsed.some(v => v.sales_rep_name === 'Kalyani Mundada');
-                    if (!hasKalyani) {
-                        const kalyaniSamples = DEFAULT_SAMPLE_VISITS.filter(v => v.sales_rep_id === 'rep-003').map(v => sanitizeVisitRecord({ ...v, sales_rep_name: 'Kalyani Mundada' }));
-                        parsed.push(...kalyaniSamples);
-                        mod = true;
-                    }
-
-                    if (mod) saveLocalVisits(parsed);
-                    return parsed;
+                    return filtered;
                 }
             }
         } catch (e) {}
-        const defaultClean = DEFAULT_SAMPLE_VISITS.map(v => sanitizeVisitRecord({ ...v }));
+
+        const defaultClean = DEFAULT_SAMPLE_VISITS
+            .filter(v => !deletedIds.has(String(v.id)))
+            .map(v => sanitizeVisitRecord({ ...v }));
         saveLocalVisits(defaultClean);
         return defaultClean;
     }
 
     function saveLocalVisits(visits) {
         if (!Array.isArray(visits)) return;
+        const deletedIds = getDeletedVisitIds();
+        const filteredVisits = visits.filter(v => v && v.id && !deletedIds.has(String(v.id)));
         try {
-            localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(visits));
+            localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(filteredVisits));
         } catch (e) {
             console.warn('localStorage quota reached, pruning heavy base64 strings from older records:', e);
             try {
                 // Keep photos for 3 newest visits, trim data URLs for older visits to ensure all records fit
-                const pruned = visits.map((v, i) => {
+                const pruned = filteredVisits.map((v, i) => {
                     if (i < 3) return v;
                     return {
                         ...v,
@@ -1376,8 +1517,8 @@
                 console.error('Critical localStorage error:', err2);
             }
         }
-        // Always persist the full visits (with all photos) to IndexedDB
-        saveVisitsToIndexedDB(visits);
+        // Always persist the clean visits (with all photos) to IndexedDB
+        saveVisitsToIndexedDB(filteredVisits);
     }
 
     async function recordClientVisit(visitData) {
@@ -1437,6 +1578,12 @@
             console.warn('Cloud save attempt failed:', e);
         }
 
+        if (savedCloud) {
+            removePendingSyncId(cleanRecord.id);
+        } else {
+            addPendingSyncId(cleanRecord.id);
+        }
+
         // Always save locally to this device
         const recordToKeep = savedCloud || cleanRecord;
         const local = getLocalVisits();
@@ -1486,6 +1633,7 @@
     async function getClientVisits(filters = {}) {
         let allVisits = [];
         let cloudData = null;
+        const deletedIds = getDeletedVisitIds();
 
         try {
             cloudData = await CloudDB.getVisits();
@@ -1494,6 +1642,9 @@
         }
 
         if (Array.isArray(cloudData)) {
+            // Filter out any tombstoned visits from cloud data
+            cloudData = cloudData.filter(v => v && v.id && !deletedIds.has(String(v.id)));
+
             cloudData.forEach(v => {
                 const oldName = v.sales_rep_name;
                 sanitizeVisitRecord(v);
@@ -1502,13 +1653,30 @@
                 }
             });
 
-            // Keep local visits that might not yet be in Supabase (e.g. created offline or on mobile)
             const serverIds = new Set(cloudData.map(v => String(v.id)));
+
+            // One-time migration for existing pending visits if pending key not initialized
+            if (localStorage.getItem(PENDING_SYNC_KEY) === null) {
+                const existingPending = new Set();
+                const local = getLocalVisits();
+                local.forEach(v => {
+                    if (v && v.id && !serverIds.has(String(v.id)) && !deletedIds.has(String(v.id)) && !String(v.id).startsWith('mock-') && !String(v.id).startsWith('visit-10')) {
+                        existingPending.add(String(v.id));
+                    }
+                });
+                localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(Array.from(existingPending)));
+            }
+
+            const pendingIds = getPendingSyncIds();
+
+            // Keep only genuine pending unsynced visits created offline on this device
             const local = getLocalVisits();
             let idb = [];
             try { idb = (await getVisitsFromIndexedDB()) || []; } catch(e) {}
             const localUnsynced = [...local, ...idb].filter(v => 
                 v && v.id && 
+                pendingIds.has(String(v.id)) && 
+                !deletedIds.has(String(v.id)) && 
                 !serverIds.has(String(v.id)) && 
                 !String(v.id).startsWith('mock-') && 
                 !String(v.id).startsWith('visit-10')
@@ -1516,9 +1684,13 @@
 
             // Combine server data and local unsynced data
             const map = new Map();
-            cloudData.forEach(v => map.set(String(v.id), sanitizeVisitRecord(v)));
+            cloudData.forEach(v => {
+                if (!deletedIds.has(String(v.id))) {
+                    map.set(String(v.id), sanitizeVisitRecord(v));
+                }
+            });
             localUnsynced.forEach(v => {
-                if (!map.has(String(v.id))) {
+                if (!deletedIds.has(String(v.id)) && !map.has(String(v.id))) {
                     map.set(String(v.id), sanitizeVisitRecord(v));
                 }
             });
@@ -1537,17 +1709,25 @@
             try {
                 const idbVisits = await getVisitsFromIndexedDB();
                 const localVisits = getLocalVisits();
-                if (Array.isArray(idbVisits) && idbVisits.length > 0) {
-                    const map = new Map();
-                    localVisits.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
-                    idbVisits.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
-                    allVisits = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
-                    saveLocalVisits(allVisits);
-                } else {
-                    allVisits = localVisits;
+                const map = new Map();
+                if (Array.isArray(localVisits)) {
+                    localVisits.forEach(v => {
+                        if (v && v.id && !deletedIds.has(String(v.id))) {
+                            map.set(String(v.id), sanitizeVisitRecord(v));
+                        }
+                    });
                 }
+                if (Array.isArray(idbVisits)) {
+                    idbVisits.forEach(v => {
+                        if (v && v.id && !deletedIds.has(String(v.id))) {
+                            map.set(String(v.id), sanitizeVisitRecord(v));
+                        }
+                    });
+                }
+                allVisits = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
+                saveLocalVisits(allVisits);
             } catch (err) {
-                allVisits = getLocalVisits();
+                allVisits = getLocalVisits().filter(v => v && v.id && !deletedIds.has(String(v.id)));
             }
         }
 
@@ -1642,14 +1822,48 @@
 
     async function deleteClientVisit(id) {
         if (!id) return false;
-        const supabase = getSupabase();
-        if (supabase) {
-            try { await supabase.from('client_visits').delete().eq('id', id); } catch (e) {}
+        const strId = String(id).trim();
+
+        // 1. Record in persistent tombstone registry so it can NEVER be resurrected
+        recordDeletedVisitId(strId);
+        removePendingSyncId(strId);
+
+        // 2. Delete from Supabase Cloud DB (via SDK and direct REST fallback)
+        try {
+            await CloudDB.deleteVisit(strId);
+        } catch (e) {
+            console.warn('Cloud delete attempt failed:', e);
         }
-        await deleteVisitFromIndexedDB(id);
-        const local = getLocalVisits();
-        const filtered = local.filter(v => v.id !== id);
-        saveLocalVisits(filtered);
+
+        // 3. Delete from IndexedDB (await transaction completion)
+        try {
+            await deleteVisitFromIndexedDB(strId);
+        } catch (e) {
+            console.warn('IndexedDB delete failed:', e);
+        }
+
+        // 4. Remove from LocalStorage
+        try {
+            const stored = localStorage.getItem(VISITS_STORAGE_KEY);
+            if (stored) {
+                const parsed = JSON.parse(stored);
+                if (Array.isArray(parsed)) {
+                    const filtered = parsed.filter(v => v && String(v.id) !== strId);
+                    localStorage.setItem(VISITS_STORAGE_KEY, JSON.stringify(filtered));
+                }
+            }
+        } catch (e) {
+            console.warn('LocalStorage delete failed:', e);
+        }
+
+        // 5. Remove from in-memory State
+        if (Array.isArray(State.allVisitsCache)) {
+            State.allVisitsCache = State.allVisitsCache.filter(v => v && String(v.id) !== strId);
+        }
+        if (Array.isArray(State.visits)) {
+            State.visits = State.visits.filter(v => v && String(v.id) !== strId);
+        }
+
         return true;
     }
 
@@ -4913,7 +5127,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 : 'border border-slate-200 shadow-sm';
 
             return `
-                <div class="bg-white rounded-2xl p-5 ${cardBorderClass} hover:shadow-md transition-shadow space-y-4">
+                <div id="visitCard_${visit.id}" data-visit-id="${visit.id}" class="bg-white rounded-2xl p-5 ${cardBorderClass} hover:shadow-md transition-shadow space-y-4">
                     
                     ${isCommon ? `
                         <!-- Prominent Common Account Highlight Banner -->
@@ -4955,7 +5169,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                                 <i data-lucide="${statusIcon}" class="w-3.5 h-3.5"></i>
                                 ${escapeHtml(visit.status)}
                             </span>
-                            <button onclick="window.handleDeleteVisit('${visit.id}')" class="text-slate-400 hover:text-red-600 p-1 rounded-lg transition-colors" title="Delete Visit">
+                            <button onclick="window.handleDeleteVisit('${visit.id}', event)" class="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete Visit Record" aria-label="Delete Visit">
                                 <i data-lucide="trash-2" class="w-4 h-4"></i>
                             </button>
                         </div>
@@ -5095,11 +5309,39 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         }
     };
 
-    window.handleDeleteVisit = async function(id) {
-        if (confirm('Are you sure you want to delete this visit record?')) {
-            await deleteClientVisit(id);
-            await loadAndRenderVisits();
+    window.handleDeleteVisit = async function(id, event) {
+        if (event) {
+            try {
+                event.stopPropagation();
+                event.preventDefault();
+            } catch (e) {}
         }
+        if (!id) return;
+
+        if (!confirm('Are you sure you want to delete this visit record? This will permanently remove it from the dashboard.')) {
+            return;
+        }
+
+        // 1. Optimistic UI update: animate and remove the card immediately
+        const cardElem = document.getElementById(`visitCard_${id}`) || document.querySelector(`[data-visit-id="${id}"]`);
+        if (cardElem) {
+            cardElem.style.transition = 'all 0.25s ease-out';
+            cardElem.style.opacity = '0';
+            cardElem.style.transform = 'scale(0.95)';
+            setTimeout(() => cardElem.remove(), 250);
+        }
+
+        // 2. Perform deep deletion across Cloud DB, IndexedDB, localStorage & State cache
+        try {
+            await deleteClientVisit(id);
+            showToastNotification('Visit record deleted successfully', 'trash-2');
+        } catch (err) {
+            console.error('Error during deletion:', err);
+            showToastNotification('Notice: Record removed locally', 'alert-circle');
+        }
+
+        // 3. Refresh dashboard state and KPIs
+        await loadAndRenderVisits();
     };
 
     // --------------------------------------------------------------------------
@@ -5588,26 +5830,38 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     async function syncLocalVisitsToCloud() {
         try {
+            const deletedIds = getDeletedVisitIds();
+            const pendingIds = getPendingSyncIds();
+            if (pendingIds.size === 0) return { count: 0 };
+
             const local = getLocalVisits();
             const idbVisits = (await getVisitsFromIndexedDB()) || [];
             const map = new Map();
-            local.forEach(v => map.set(v.id, v));
-            idbVisits.forEach(v => map.set(v.id, v));
-            const allToSync = Array.from(map.values()).filter(v => v.id && !v.id.startsWith('mock-') && !v.id.startsWith('visit-10'));
-            if (allToSync.length === 0) return { count: 0 };
+            local.forEach(v => {
+                if (v && v.id && pendingIds.has(String(v.id)) && !deletedIds.has(String(v.id))) {
+                    map.set(String(v.id), v);
+                }
+            });
+            idbVisits.forEach(v => {
+                if (v && v.id && pendingIds.has(String(v.id)) && !deletedIds.has(String(v.id))) {
+                    map.set(String(v.id), v);
+                }
+            });
 
-            // Check what is already on server
-            const serverVisits = (await CloudDB.getVisits()) || [];
-            const serverIds = new Set(serverVisits.map(s => String(s.id)));
+            const allToSync = Array.from(map.values()).filter(v => 
+                v && v.id && 
+                !v.id.startsWith('mock-') && 
+                !v.id.startsWith('visit-10') &&
+                !deletedIds.has(String(v.id))
+            );
+            if (allToSync.length === 0) return { count: 0 };
 
             let syncedCount = 0;
             for (const v of allToSync) {
-                if (!serverIds.has(String(v.id))) {
-                    const saved = await CloudDB.saveVisit(v);
-                    if (saved) {
-                        syncedCount++;
-                        serverIds.add(String(v.id));
-                    }
+                const saved = await CloudDB.saveVisit(v);
+                if (saved) {
+                    syncedCount++;
+                    removePendingSyncId(v.id);
                 }
             }
             if (syncedCount > 0) {
@@ -5690,10 +5944,21 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     return;
                 }
 
+                const deletedIds = getDeletedVisitIds();
+                visitsToImport.forEach(v => {
+                    if (v && v.id && !deletedIds.has(String(v.id))) {
+                        addPendingSyncId(v.id);
+                    }
+                });
+
                 const currentLocal = getLocalVisits();
                 const map = new Map();
-                currentLocal.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
-                visitsToImport.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+                currentLocal.forEach(v => {
+                    if (v && v.id && !deletedIds.has(String(v.id))) map.set(v.id, sanitizeVisitRecord(v));
+                });
+                visitsToImport.forEach(v => {
+                    if (v && v.id && !deletedIds.has(String(v.id))) map.set(v.id, sanitizeVisitRecord(v));
+                });
                 const merged = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
 
                 saveLocalVisits(merged);
@@ -5728,10 +5993,21 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 return;
             }
 
+            const deletedIds = getDeletedVisitIds();
+            visitsToImport.forEach(v => {
+                if (v && v.id && !deletedIds.has(String(v.id))) {
+                    addPendingSyncId(v.id);
+                }
+            });
+
             const currentLocal = getLocalVisits();
             const map = new Map();
-            currentLocal.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
-            visitsToImport.forEach(v => map.set(v.id, sanitizeVisitRecord(v)));
+            currentLocal.forEach(v => {
+                if (v && v.id && !deletedIds.has(String(v.id))) map.set(v.id, sanitizeVisitRecord(v));
+            });
+            visitsToImport.forEach(v => {
+                if (v && v.id && !deletedIds.has(String(v.id))) map.set(v.id, sanitizeVisitRecord(v));
+            });
             const merged = Array.from(map.values()).sort((a, b) => new Date(b.visit_time || 0) - new Date(a.visit_time || 0));
 
             saveLocalVisits(merged);
