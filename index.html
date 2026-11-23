@@ -329,6 +329,25 @@
                     </div>
                 </div>
 
+                <!-- Area with Auto-Suggest / Auto-Pick (Mandatory) -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider" for="areaInput">
+                            Area *
+                        </label>
+                        <span class="text-[11px] text-slate-500">Auto-suggests from known areas</span>
+                    </div>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="map" class="w-4 h-4"></i>
+                        </div>
+                        <input type="text" id="areaInput" list="areaDatalist" required placeholder="e.g. Andheri East, Cyber City, Nariman Point..."
+                            autocomplete="off"
+                            class="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all">
+                        <datalist id="areaDatalist"></datalist>
+                    </div>
+                </div>
+
                 <!-- Address Section: Option A & Option B -->
                 <div class="space-y-3 p-4 bg-slate-50 rounded-2xl border border-slate-200">
                     <div class="flex items-center justify-between">
@@ -454,33 +473,29 @@
                     </div>
                 </div>
 
-                <!-- Status of Meeting -->
+                <!-- Status of Meeting (Mandatory: Positive / Meet Again / Negative) -->
                 <div>
-                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-                        Status of Meeting *
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="meetingStatusSelect">
+                        Status *
                     </label>
-                    <div class="grid grid-cols-2 gap-3">
-                        <label id="statusClosedCard" class="cursor-pointer border-2 border-slate-200 hover:border-emerald-500 rounded-xl p-3.5 flex flex-col items-center justify-center text-center transition-all bg-white">
-                            <input type="radio" name="meetingStatus" value="Successful Closed" class="hidden" required>
-                            <div class="w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-1.5 status-icon">
-                                <i data-lucide="check-check" class="w-5 h-5"></i>
-                            </div>
-                            <span class="text-sm font-bold text-slate-800 status-title">Successful Closed</span>
-                            <span class="text-[11px] text-slate-500">Deal or contract finalized</span>
-                        </label>
-
-                        <label id="statusFollowupCard" class="cursor-pointer border-2 border-blue-500 bg-blue-50/40 rounded-xl p-3.5 flex flex-col items-center justify-center text-center transition-all">
-                            <input type="radio" name="meetingStatus" value="Follow-up Required" class="hidden" checked required>
-                            <div class="w-10 h-10 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mb-1.5 status-icon">
-                                <i data-lucide="calendar" class="w-5 h-5"></i>
-                            </div>
-                            <span class="text-sm font-bold text-slate-800 status-title">Follow-up Required</span>
-                            <span class="text-[11px] text-slate-500">Next meeting or quote needed</span>
-                        </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="activity" class="w-4 h-4"></i>
+                        </div>
+                        <select id="meetingStatusSelect" required
+                            class="w-full pl-9 pr-8 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none font-bold text-slate-800 transition-all appearance-none cursor-pointer">
+                            <option value="" disabled selected>Select Status *</option>
+                            <option value="Positive" class="font-bold text-emerald-700">🟢 Positive</option>
+                            <option value="Meet Again" class="font-bold text-blue-700">🔵 Meet Again</option>
+                            <option value="Negative" class="font-bold text-rose-700">🔴 Negative</option>
+                        </select>
+                        <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                        </div>
                     </div>
 
-                    <!-- Follow up date (shown when Follow-up Required is selected) with 11:30 AM reminder -->
-                    <div id="followupDateContainer" class="mt-3 p-3.5 bg-gradient-to-br from-amber-50 to-orange-50/60 rounded-xl border border-amber-200 space-y-2">
+                    <!-- Follow up date (shown when Meet Again or Positive is selected) with 11:30 AM reminder -->
+                    <div id="followupDateContainer" class="hidden mt-3 p-3.5 bg-gradient-to-br from-amber-50 to-orange-50/60 rounded-xl border border-amber-200 space-y-2">
                         <div class="flex items-center justify-between">
                             <label class="block text-xs font-bold text-amber-900 flex items-center gap-1.5" for="followupDateInput">
                                 <i data-lucide="calendar" class="w-4 h-4 text-amber-600"></i> Next Follow-up Date *
@@ -501,13 +516,27 @@
                     </div>
                 </div>
 
-                <!-- Remarks -->
+                <!-- Reference of (Optional) -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="referenceOfInput">
+                        Reference of <span class="text-slate-400 font-normal lowercase">(optional)</span>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="user-check" class="w-4 h-4"></i>
+                        </div>
+                        <input type="text" id="referenceOfInput" placeholder="e.g. Mr. Sharma / Exhibition lead / Existing Client..."
+                            class="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all">
+                    </div>
+                </div>
+
+                <!-- Remarks (Optional) -->
                 <div>
                     <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="remarksInput">
-                        Visit Remarks & Discussion Notes *
+                        Remarks <span class="text-slate-400 font-normal lowercase">(optional)</span>
                     </label>
-                    <textarea id="remarksInput" required rows="3" placeholder="Key points discussed, client requirements, pricing quotes, obstacles, or action items..."
-                        class="w-full p-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+                    <textarea id="remarksInput" rows="3" placeholder="Key points discussed, client requirements, pricing quotes, obstacles, or action items..."
+                        class="w-full p-3 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"></textarea>
                 </div>
 
                 <!-- Submit Button -->
@@ -642,11 +671,12 @@
 
                     <!-- Status Filter -->
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Meeting Status</label>
+                        <label class="block text-xs font-semibold text-slate-600 uppercase tracking-wider mb-1">Status</label>
                         <select id="filterStatus" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium focus:ring-2 focus:ring-blue-500 outline-none">
                             <option value="ALL">All Statuses</option>
-                            <option value="Successful Closed">Successful Closed</option>
-                            <option value="Follow-up Required">Follow-up Required</option>
+                            <option value="Positive">Positive</option>
+                            <option value="Meet Again">Meet Again</option>
+                            <option value="Negative">Negative</option>
                         </select>
                     </div>
 
@@ -2015,9 +2045,242 @@
                 </div>
             </form>
         </div>
+    <!-- ========================================================================= -->
+    <!-- EDIT VISIT RECORD MODAL -->
+    <!-- ========================================================================= -->
+    <div id="editVisitModal" class="hidden fixed inset-0 z-[65] modal-backdrop flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+        <div class="bg-white rounded-2xl max-w-xl w-full shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[92vh]">
+            <!-- Modal Header -->
+            <div class="p-4 sm:p-5 bg-gradient-to-r from-blue-700 via-indigo-700 to-blue-800 text-white flex items-center justify-between shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center text-white backdrop-blur-sm">
+                        <i data-lucide="edit-3" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-bold text-white leading-tight">Edit Visit Record</h3>
+                        <p class="text-xs text-blue-200">Update area, status, remarks, or files</p>
+                    </div>
+                </div>
+                <button type="button" onclick="window.closeEditVisitModal()" class="text-blue-200 hover:text-white p-1.5 rounded-lg hover:bg-white/10 transition-colors" title="Close">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- Modal Form Body -->
+            <form id="editVisitForm" class="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1 text-xs">
+                <input type="hidden" id="editVisitId">
+
+                <!-- Sales Rep Tag & Date -->
+                <div class="flex items-center justify-between p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700">
+                    <div class="flex items-center gap-2">
+                        <div class="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs" id="editVisitRepAvatar">
+                            SR
+                        </div>
+                        <div>
+                            <span class="font-bold text-slate-900" id="editVisitRepName">Sales Rep</span>
+                            <span class="text-[10px] text-slate-500 font-mono block" id="editVisitEmpId">EMP-102</span>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block">Record ID</span>
+                        <span class="font-mono text-[11px] text-slate-600 font-bold" id="editVisitIdDisplay">-</span>
+                    </div>
+                </div>
+
+                <!-- Business Name -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="editBusinessNameInput">
+                        Business Name *
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="building-2" class="w-4 h-4"></i>
+                        </div>
+                        <input type="text" id="editBusinessNameInput" required placeholder="Business Name"
+                            class="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+
+                <!-- Area (Mandatory with auto-suggest) -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider" for="editAreaInput">
+                            Area *
+                        </label>
+                        <span class="text-[11px] text-slate-500">Auto-suggests from known areas</span>
+                    </div>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="map" class="w-4 h-4"></i>
+                        </div>
+                        <input type="text" id="editAreaInput" list="editAreaDatalist" required placeholder="e.g. Andheri East, Cyber City..."
+                            autocomplete="off"
+                            class="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                        <datalist id="editAreaDatalist"></datalist>
+                    </div>
+                </div>
+
+                <!-- Meeting Date & Time -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="editVisitTimeInput">
+                        Meeting Date & Time *
+                    </label>
+                    <input type="datetime-local" id="editVisitTimeInput" required
+                        class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+
+                <!-- Person Met Details -->
+                <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-2.5">
+                    <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <i data-lucide="users" class="w-3.5 h-3.5 text-blue-600"></i>
+                        Contact Person Details
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-0.5" for="editContactPersonNameInput">Contact Person Name *</label>
+                            <input type="text" id="editContactPersonNameInput" required
+                                class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-0.5" for="editContactPersonPhoneInput">Contact Mobile Number *</label>
+                            <input type="tel" id="editContactPersonPhoneInput" required
+                                class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-0.5" for="editContactPersonEmailInput">Contact Email ID</label>
+                            <input type="email" id="editContactPersonEmailInput"
+                                class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] text-slate-500 mb-0.5" for="editPincodeInput">Pin Code *</label>
+                            <input type="text" id="editPincodeInput" required
+                                class="w-full px-2.5 py-1.5 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status of Meeting (Mandatory) -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="editMeetingStatusSelect">
+                        Status *
+                    </label>
+                    <div class="relative">
+                        <select id="editMeetingStatusSelect" required
+                            class="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-800 transition-all cursor-pointer">
+                            <option value="Positive">🟢 Positive (Deal Finalized / Interested)</option>
+                            <option value="Meet Again">🔵 Meet Again (Follow-up Required)</option>
+                            <option value="Negative">🔴 Negative (Not Interested / Closed)</option>
+                        </select>
+                    </div>
+
+                    <!-- Follow up date container in Edit modal -->
+                    <div id="editFollowupDateContainer" class="mt-2.5 p-3 bg-amber-50 rounded-xl border border-amber-200 space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <label class="block text-xs font-bold text-amber-900 flex items-center gap-1.5" for="editFollowupDateInput">
+                                <i data-lucide="calendar" class="w-3.5 h-3.5 text-amber-600"></i> Next Follow-up Date *
+                            </label>
+                            <span class="text-[10px] font-bold text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-full">
+                                11:30 AM Reminder
+                            </span>
+                        </div>
+                        <input type="date" id="editFollowupDateInput"
+                            class="w-full px-3 py-2 text-sm bg-white border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none font-medium text-slate-800">
+                    </div>
+                </div>
+
+                <!-- Reference of (Optional) -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="editReferenceOfInput">
+                        Reference of <span class="text-slate-400 font-normal lowercase">(optional)</span>
+                    </label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                            <i data-lucide="user-check" class="w-4 h-4"></i>
+                        </div>
+                        <input type="text" id="editReferenceOfInput" placeholder="e.g. Mr. Sharma, Exhibition lead..."
+                            class="w-full pl-9 pr-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                    </div>
+                </div>
+
+                <!-- Remarks (Optional) -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1" for="editRemarksInput">
+                        Remarks <span class="text-slate-400 font-normal lowercase">(optional)</span>
+                    </label>
+                    <textarea id="editRemarksInput" rows="2" placeholder="Discussion points, notes, pricing details, or observations..."
+                        class="w-full p-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+                </div>
+
+                <!-- Address Option A (Visiting Card / Manual) -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1" for="editAddressOptionAInput">
+                        Address (Option A: Visiting Card / Manual)
+                    </label>
+                    <textarea id="editAddressOptionAInput" rows="2" placeholder="Street address..."
+                        class="w-full p-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+                </div>
+
+                <!-- Photo Attachments Management -->
+                <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                    <span class="block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <i data-lucide="image" class="w-3.5 h-3.5 text-blue-600"></i>
+                        Attached Photos & Cards
+                    </span>
+                    <div class="grid grid-cols-3 gap-2 text-center text-[11px]">
+                        <!-- Card Front -->
+                        <div class="p-2 bg-white rounded-lg border border-slate-200 space-y-1">
+                            <span class="block font-bold text-slate-700 truncate">Visiting Card</span>
+                            <div id="editCardFrontPreview" class="w-full h-16 rounded bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-200">
+                                <span class="text-[10px] text-slate-400">None</span>
+                            </div>
+                            <label class="inline-block w-full py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-[10px] font-bold cursor-pointer transition-colors">
+                                Replace
+                                <input type="file" id="editVisitingCardFrontInput" accept="image/*" class="hidden">
+                            </label>
+                        </div>
+
+                        <!-- Card Back -->
+                        <div class="p-2 bg-white rounded-lg border border-slate-200 space-y-1">
+                            <span class="block font-bold text-slate-700 truncate">Card Back</span>
+                            <div id="editCardBackPreview" class="w-full h-16 rounded bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-200">
+                                <span class="text-[10px] text-slate-400">None</span>
+                            </div>
+                            <label class="inline-block w-full py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold cursor-pointer transition-colors">
+                                Replace
+                                <input type="file" id="editVisitingCardBackInput" accept="image/*" class="hidden">
+                            </label>
+                        </div>
+
+                        <!-- Office Photo -->
+                        <div class="p-2 bg-white rounded-lg border border-slate-200 space-y-1">
+                            <span class="block font-bold text-slate-700 truncate">Office Photo</span>
+                            <div id="editOfficePhotoPreview" class="w-full h-16 rounded bg-slate-100 flex items-center justify-center overflow-hidden border border-slate-200">
+                                <span class="text-[10px] text-slate-400">None</span>
+                            </div>
+                            <label class="inline-block w-full py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-[10px] font-bold cursor-pointer transition-colors">
+                                Replace
+                                <input type="file" id="editOfficePhotoInput" accept="image/*" class="hidden">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Action Buttons -->
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                    <button type="button" onclick="window.closeEditVisitModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors">
+                        Cancel
+                    </button>
+                    <button type="submit" id="saveEditVisitBtn" class="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-md shadow-blue-500/25 flex items-center gap-1.5 transition-all">
+                        <i data-lucide="check" class="w-4 h-4"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- Main Application Script -->
-    <script src="js/app.js?v=2.6.1"></script>
+    <script src="js/app.js?v=2.7.0"></script>
 </body>
 </html>

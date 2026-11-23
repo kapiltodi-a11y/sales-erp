@@ -63,6 +63,8 @@ ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS visiting_card_front_url TEXT;
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS visiting_card_back_url TEXT;
 ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS office_photo_url TEXT;
+ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS area VARCHAR(255);
+ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS reference_of VARCHAR(255);
 
 -- Update business_name from client_name for legacy rows
 UPDATE public.client_visits SET business_name = client_name WHERE business_name IS NULL AND client_name IS NOT NULL;
@@ -73,6 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_visits_sales_rep_id ON public.client_visits(sales
 CREATE INDEX IF NOT EXISTS idx_visits_visit_time ON public.client_visits(visit_time DESC);
 CREATE INDEX IF NOT EXISTS idx_visits_status ON public.client_visits(status);
 CREATE INDEX IF NOT EXISTS idx_visits_business_name ON public.client_visits(business_name);
+CREATE INDEX IF NOT EXISTS idx_visits_area ON public.client_visits(area);
 
 -- 5. Enable Row Level Security (RLS)
 ALTER TABLE public.sales_reps ENABLE ROW LEVEL SECURITY;

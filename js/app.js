@@ -82,6 +82,17 @@
         return getSupabase();
     }
 
+    function extractVisitCustomFields(v) {
+        if (!v || typeof v !== 'object') return v;
+        if (v.ocr_extracted_data && typeof v.ocr_extracted_data === 'object') {
+            if (!v.area && v.ocr_extracted_data.area) v.area = v.ocr_extracted_data.area;
+            if (!v.reference_of && v.ocr_extracted_data.reference_of) v.reference_of = v.ocr_extracted_data.reference_of;
+        }
+        if (v.status === 'Successful Closed') v.status = 'Positive';
+        if (v.status === 'Follow-up Required') v.status = 'Meet Again';
+        return v;
+    }
+
     function prepareVisitForDatabase(v) {
         if (!v) return null;
         const cleanLat = (v.latitude !== null && v.latitude !== undefined && v.latitude !== '' && !isNaN(Number(v.latitude))) ? Number(v.latitude) : null;
@@ -98,6 +109,22 @@
         const bName = (v.business_name || v.client_name || '').trim();
         const addrA = (v.address_option_a || v.client_address || '').trim();
         const addrB = (v.address_option_b || v.location_address || '').trim();
+        const areaStr = (v.area || (v.ocr_extracted_data && v.ocr_extracted_data.area) || '').trim();
+        const refStr = (v.reference_of || (v.ocr_extracted_data && v.ocr_extracted_data.reference_of) || '').trim();
+
+        let cleanStatus = 'Positive';
+        if (v.status === 'Successful Closed' || v.status === 'Positive') {
+            cleanStatus = 'Positive';
+        } else if (v.status === 'Follow-up Required' || v.status === 'Meet Again') {
+            cleanStatus = 'Meet Again';
+        } else if (v.status === 'Negative') {
+            cleanStatus = 'Negative';
+        } else if (v.status) {
+            cleanStatus = v.status;
+        }
+
+        const existingOcr = (v.ocr_extracted_data && typeof v.ocr_extracted_data === 'object') ? v.ocr_extracted_data : {};
+        const mergedOcr = { ...existingOcr, area: areaStr, reference_of: refStr };
 
         return {
             id: String(v.id || ('visit-' + Date.now())),
@@ -106,6 +133,8 @@
             employee_id: (v.employee_id || '').trim(),
             business_name: bName || 'Client Visit',
             client_name: bName || 'Client Visit',
+            area: areaStr || null,
+            reference_of: refStr || null,
             address_option_a: addrA || null,
             address_option_b: addrB || null,
             client_address: addrA || null,
@@ -117,7 +146,7 @@
             contact_person_phone: (v.contact_person_phone || '').trim(),
             contact_person_email: (v.contact_person_email || '').trim() || null,
             pincode: (v.pincode || '').trim() || null,
-            status: (v.status === 'Successful Closed') ? 'Successful Closed' : 'Follow-up Required',
+            status: cleanStatus,
             follow_up_date: cleanFollowUp,
             remarks: (v.remarks || '').trim() || null,
             visiting_card_front_url: v.visiting_card_front_url || v.visiting_card_url || null,
@@ -125,7 +154,7 @@
             visiting_card_url: v.visiting_card_front_url || v.visiting_card_url || null,
             office_photo_url: v.office_photo_url || null,
             ocr_raw_text: v.ocr_raw_text || null,
-            ocr_extracted_data: (v.ocr_extracted_data && typeof v.ocr_extracted_data === 'object') ? v.ocr_extracted_data : {},
+            ocr_extracted_data: mergedOcr,
             created_at: v.created_at ? new Date(v.created_at).toISOString() : new Date().toISOString()
         };
     }
@@ -137,23 +166,29 @@
             if (client) {
                 try {
                     const { data, error } = await client.from('client_visits').select('*').order('visit_time', { ascending: false });
-                    if (!error && Array.isArray(data)) return data;
+                    if (!error && Array.isArray(data)) {
+                        return data.map(extractVisitCustomFields);
+                    }
                 } catch (e) {
                     console.warn('Supabase SDK getVisits error:', e);
                 }
             }
 
             // 2. Direct REST fetch fallback (100% reliable, zero CDN dependency)
+            const url = (AppConfig.supabaseUrl || DEFAULT_SUPABASE_URL).trim().replace(/\/+$/, '');
+            const key = (AppConfig.supabaseAnonKey || DEFAULT_SUPABASE_KEY).trim();
             try {
-                const res = await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/client_visits?select=*&order=visit_time.desc`, {
+                const res = await fetch(`${url}/rest/v1/client_visits?select=*&order=visit_time.desc`, {
                     headers: {
-                        'apikey': DEFAULT_SUPABASE_KEY,
-                        'Authorization': `Bearer ${DEFAULT_SUPABASE_KEY}`
+                        'apikey': key,
+                        'Authorization': `Bearer ${key}`
                     }
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    if (Array.isArray(data)) return data;
+                    if (Array.isArray(data)) {
+                        return data.map(extractVisitCustomFields);
+                    }
                 }
             } catch (e) {
                 console.warn('Direct REST getVisits error:', e);
@@ -165,24 +200,39 @@
             const clean = prepareVisitForDatabase(visit);
             if (!clean) return null;
 
+            // Safe payload without top-level area / reference_of if columns not yet added to remote table
+            const safePayload = { ...clean };
+            delete safePayload.area;
+            delete safePayload.reference_of;
+
             // 1. Try Supabase SDK
             const client = getSupabase();
             if (client) {
                 try {
                     const { data, error } = await client.from('client_visits').upsert([clean]).select().single();
-                    if (!error && data) return data;
+                    if (!error && data) return extractVisitCustomFields(data);
                 } catch (e) {
-                    console.warn('Supabase SDK saveVisit error:', e);
+                    console.warn('Supabase SDK saveVisit full payload error:', e);
                 }
+                try {
+                    const { data, error } = await client.from('client_visits').upsert([safePayload]).select().single();
+                    if (!error && data) {
+                        data.area = clean.area;
+                        data.reference_of = clean.reference_of;
+                        return extractVisitCustomFields(data);
+                    }
+                } catch (e2) {}
             }
 
             // 2. Direct REST fetch fallback
+            const url = (AppConfig.supabaseUrl || DEFAULT_SUPABASE_URL).trim().replace(/\/+$/, '');
+            const key = (AppConfig.supabaseAnonKey || DEFAULT_SUPABASE_KEY).trim();
             try {
-                const res = await fetch(`${DEFAULT_SUPABASE_URL}/rest/v1/client_visits`, {
+                const res = await fetch(`${url}/rest/v1/client_visits`, {
                     method: 'POST',
                     headers: {
-                        'apikey': DEFAULT_SUPABASE_KEY,
-                        'Authorization': `Bearer ${DEFAULT_SUPABASE_KEY}`,
+                        'apikey': key,
+                        'Authorization': `Bearer ${key}`,
                         'Content-Type': 'application/json',
                         'Prefer': 'resolution=merge-duplicates,return=representation'
                     },
@@ -190,13 +240,32 @@
                 });
                 if (res.ok) {
                     const data = await res.json();
-                    if (Array.isArray(data) && data[0]) return data[0];
+                    if (Array.isArray(data) && data[0]) return extractVisitCustomFields(data[0]);
                     return clean;
+                } else if (res.status === 400) {
+                    // Try safe payload without new columns if schema migration hasn't been executed
+                    const res2 = await fetch(`${url}/rest/v1/client_visits`, {
+                        method: 'POST',
+                        headers: {
+                            'apikey': key,
+                            'Authorization': `Bearer ${key}`,
+                            'Content-Type': 'application/json',
+                            'Prefer': 'resolution=merge-duplicates,return=representation'
+                        },
+                        body: JSON.stringify(safePayload)
+                    });
+                    if (res2.ok) {
+                        const data2 = await res2.json();
+                        const ret = (Array.isArray(data2) && data2[0]) ? data2[0] : clean;
+                        ret.area = clean.area;
+                        ret.reference_of = clean.reference_of;
+                        return extractVisitCustomFields(ret);
+                    }
                 }
             } catch (e) {
                 console.warn('Direct REST saveVisit error:', e);
             }
-            return null;
+            return clean;
         },
 
         async deleteVisit(id) {
@@ -1102,6 +1171,8 @@
             employee_id: 'EMP-101',
             business_name: 'Nexus Retail Enterprises',
             client_name: 'Nexus Retail Enterprises',
+            area: 'Cyber City',
+            reference_of: 'Director Referral',
             address_option_a: 'Plot 45, Sector 18, Commercial Belt, Cyber City',
             address_option_b: 'Sector 18, Gurugram, Haryana 122002',
             client_address: 'Plot 45, Sector 18, Commercial Belt, Cyber City',
@@ -1113,14 +1184,14 @@
             contact_person_phone: '+91 98112 34567',
             contact_person_email: 'vikas@nexusretail.com',
             pincode: '122002',
-            status: 'Successful Closed',
+            status: 'Positive',
             follow_up_date: null,
             remarks: 'Met with the Purchase Director. Discussed annual contract terms for bulk enterprise supply. Final contract signed for 500 units!',
             visiting_card_front_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
             visiting_card_back_url: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=600&q=80',
             visiting_card_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
             office_photo_url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=600&q=80',
-            ocr_extracted_data: { companyName: 'Nexus Retail Enterprises', contactPerson: 'Vikas Malhotra', phone: '+91 98112 34567', email: 'vikas@nexusretail.com', pincode: '122002' },
+            ocr_extracted_data: { companyName: 'Nexus Retail Enterprises', contactPerson: 'Vikas Malhotra', phone: '+91 98112 34567', email: 'vikas@nexusretail.com', pincode: '122002', area: 'Cyber City', reference_of: 'Director Referral' },
             created_at: new Date(Date.now() - 2 * 3600000).toISOString()
         },
         {
@@ -1130,6 +1201,8 @@
             employee_id: 'EMP-102',
             business_name: 'Apex Infotech Solutions',
             client_name: 'Apex Infotech Solutions',
+            area: 'MG Road',
+            reference_of: 'Tech Expo 2024',
             address_option_a: '3rd Floor, Tower B, Infinity Tech Park, MG Road',
             address_option_b: 'Infinity Park, MG Road, Mumbai, Maharashtra 400051',
             client_address: '3rd Floor, Tower B, Infinity Tech Park, MG Road',
@@ -1141,14 +1214,14 @@
             contact_person_phone: '+91 98220 98765',
             contact_person_email: 'ananya.d@apexinfotech.io',
             pincode: '400051',
-            status: 'Follow-up Required',
+            status: 'Meet Again',
             follow_up_date: new Date(Date.now() + 3 * 86400000).toISOString().split('T')[0],
             remarks: 'Product demo given to tech team. Highly impressed with features. Follow up next Tuesday with revised commercial proposal.',
             visiting_card_front_url: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=600&q=80',
             visiting_card_back_url: null,
             visiting_card_url: 'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=600&q=80',
             office_photo_url: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?auto=format&fit=crop&w=600&q=80',
-            ocr_extracted_data: { companyName: 'Apex Infotech Solutions', contactPerson: 'Ananya Deshmukh', phone: '+91 98220 98765', email: 'ananya.d@apexinfotech.io', pincode: '400051' },
+            ocr_extracted_data: { companyName: 'Apex Infotech Solutions', contactPerson: 'Ananya Deshmukh', phone: '+91 98220 98765', email: 'ananya.d@apexinfotech.io', pincode: '400051', area: 'MG Road', reference_of: 'Tech Expo 2024' },
             created_at: new Date(Date.now() - 5 * 3600000).toISOString()
         },
         {
@@ -1158,6 +1231,8 @@
             employee_id: 'EMP-101',
             business_name: 'Sunrise Logistics Hub',
             client_name: 'Sunrise Logistics Hub',
+            area: 'Cargo Complex',
+            reference_of: 'Self / Direct Walk-in',
             address_option_a: 'National Highway 48, Near Toll Plaza, Cargo Complex',
             address_option_b: 'Cargo Complex, NH48, Noida, Uttar Pradesh 201301',
             client_address: 'National Highway 48, Near Toll Plaza, Cargo Complex',
@@ -1169,14 +1244,14 @@
             contact_person_phone: '+91 97110 54321',
             contact_person_email: 'rgill@sunriselogistics.in',
             pincode: '201301',
-            status: 'Successful Closed',
+            status: 'Positive',
             follow_up_date: null,
             remarks: 'Payment terms agreed upon. Received advance cheque for pilot deployment. Onboarding scheduled for next week.',
             visiting_card_front_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
             visiting_card_back_url: null,
             visiting_card_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
             office_photo_url: 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=600&q=80',
-            ocr_extracted_data: { companyName: 'Sunrise Logistics Hub', contactPerson: 'Rajinder Gill', phone: '+91 97110 54321', email: 'rgill@sunriselogistics.in', pincode: '201301' },
+            ocr_extracted_data: { companyName: 'Sunrise Logistics Hub', contactPerson: 'Rajinder Gill', phone: '+91 97110 54321', email: 'rgill@sunriselogistics.in', pincode: '201301', area: 'Cargo Complex', reference_of: 'Self / Direct Walk-in' },
             created_at: new Date(Date.now() - 26 * 3600000).toISOString()
         },
         {
@@ -1186,6 +1261,8 @@
             employee_id: 'EMP-102',
             business_name: 'Nexus Retail Enterprises',
             client_name: 'Nexus Retail Enterprises',
+            area: 'Nariman Point',
+            reference_of: 'Existing Client',
             address_option_a: 'Unit 12, Express Towers, Nariman Point',
             address_option_b: 'Nariman Point, Mumbai, Maharashtra 400021',
             client_address: 'Unit 12, Express Towers, Nariman Point',
@@ -1197,14 +1274,14 @@
             contact_person_phone: '+91 98201 11223',
             contact_person_email: 'sunil.k@nexusretail.com',
             pincode: '400021',
-            status: 'Follow-up Required',
+            status: 'Meet Again',
             follow_up_date: new Date(Date.now() + 5 * 86400000).toISOString().split('T')[0],
             remarks: 'Met Regional VP of Retail Operations. Explored western region expansion and bulk POS integration.',
             visiting_card_front_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
             visiting_card_back_url: null,
             visiting_card_url: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?auto=format&fit=crop&w=600&q=80',
             office_photo_url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=600&q=80',
-            ocr_extracted_data: { companyName: 'Nexus Retail Enterprises', contactPerson: 'Sunil Kothari', phone: '+91 98201 11223', email: 'sunil.k@nexusretail.com', pincode: '400021' },
+            ocr_extracted_data: { companyName: 'Nexus Retail Enterprises', contactPerson: 'Sunil Kothari', phone: '+91 98201 11223', email: 'sunil.k@nexusretail.com', pincode: '400021', area: 'Nariman Point', reference_of: 'Existing Client' },
             created_at: new Date(Date.now() - 48 * 3600000).toISOString()
         },
         {
@@ -1214,6 +1291,8 @@
             employee_id: 'EMP-103',
             business_name: 'Sterling Design Studio',
             client_name: 'Sterling Design Studio',
+            area: 'Bandra West',
+            reference_of: 'Architect Forum',
             address_option_a: '502, Prime Plaza, SV Road, Bandra West',
             address_option_b: 'Bandra West, Mumbai, Maharashtra 400050',
             client_address: '502, Prime Plaza, SV Road, Bandra West',
@@ -1225,14 +1304,14 @@
             contact_person_phone: '+91 98205 67890',
             contact_person_email: 'pooja@sterlingdesign.in',
             pincode: '400050',
-            status: 'Follow-up Required',
+            status: 'Meet Again',
             follow_up_date: new Date(Date.now() + 4 * 86400000).toISOString().split('T')[0],
             remarks: 'Product catalogue presented to principal architect. Follow-up meeting scheduled next week for sample approvals.',
             visiting_card_front_url: null,
             visiting_card_back_url: null,
             visiting_card_url: null,
             office_photo_url: null,
-            ocr_extracted_data: { companyName: 'Sterling Design Studio', contactPerson: 'Pooja Mehta', phone: '+91 98205 67890', email: 'pooja@sterlingdesign.in', pincode: '400050' },
+            ocr_extracted_data: { companyName: 'Sterling Design Studio', contactPerson: 'Pooja Mehta', phone: '+91 98205 67890', email: 'pooja@sterlingdesign.in', pincode: '400050', area: 'Bandra West', reference_of: 'Architect Forum' },
             created_at: new Date(Date.now() - 4 * 3600000).toISOString()
         },
         {
@@ -1242,6 +1321,8 @@
             employee_id: 'EMP-103',
             business_name: 'Zenith Architecture Group',
             client_name: 'Zenith Architecture Group',
+            area: 'Nariman Point',
+            reference_of: 'Mr. Singhania',
             address_option_a: '14th Floor, Maker Chambers, Nariman Point',
             address_option_b: 'Nariman Point, Mumbai, Maharashtra 400021',
             client_address: '14th Floor, Maker Chambers, Nariman Point',
@@ -1253,14 +1334,14 @@
             contact_person_phone: '+91 99301 23456',
             contact_person_email: 'rohan.k@zenitharch.com',
             pincode: '400021',
-            status: 'Successful Closed',
+            status: 'Positive',
             follow_up_date: null,
             remarks: 'Purchase agreement executed for upcoming commercial complex project. Advance received.',
             visiting_card_front_url: null,
             visiting_card_back_url: null,
             visiting_card_url: null,
             office_photo_url: null,
-            ocr_extracted_data: { companyName: 'Zenith Architecture Group', contactPerson: 'Rohan Kulkarni', phone: '+91 99301 23456', email: 'rohan.k@zenitharch.com', pincode: '400021' },
+            ocr_extracted_data: { companyName: 'Zenith Architecture Group', contactPerson: 'Rohan Kulkarni', phone: '+91 99301 23456', email: 'rohan.k@zenitharch.com', pincode: '400021', area: 'Nariman Point', reference_of: 'Mr. Singhania' },
             created_at: new Date(Date.now() - 28 * 3600000).toISOString()
         }
     ];
@@ -1284,9 +1365,104 @@
             v.sales_rep_id = v.sales_rep_id || 'rep-003';
             v.employee_id = v.employee_id || 'EMP-103';
         }
+
+        // Area & Reference Of normalization
+        const ocr = (v.ocr_extracted_data && typeof v.ocr_extracted_data === 'object') ? v.ocr_extracted_data : {};
+        if (!v.area && ocr.area) v.area = String(ocr.area).trim();
+        if (!v.reference_of && ocr.reference_of) v.reference_of = String(ocr.reference_of).trim();
+        if (v.area) v.area = String(v.area).trim();
+        if (v.reference_of) v.reference_of = String(v.reference_of).trim();
+
+        // Status normalization
+        if (v.status === 'Successful Closed') v.status = 'Positive';
+        else if (v.status === 'Follow-up Required') v.status = 'Meet Again';
+        else if (!v.status) v.status = 'Positive';
+
         return v;
     }
     window.sanitizeVisitRecord = sanitizeVisitRecord;
+
+    // --------------------------------------------------------------------------
+    // KNOWN AREAS REGISTRY (AUTO-SUGGESTION SERVICE)
+    // --------------------------------------------------------------------------
+    const KNOWN_AREAS_KEY = 'sales_erp_known_areas';
+    const DEFAULT_KNOWN_AREAS = [
+        'Andheri East',
+        'Bandra West',
+        'BKC (Bandra Kurla Complex)',
+        'Cargo Complex',
+        'Cyber City',
+        'Lower Parel',
+        'MG Road',
+        'Nariman Point',
+        'Noida Sector 62',
+        'Powai',
+        'Sector 18'
+    ];
+
+    function getKnownAreas() {
+        const set = new Set(DEFAULT_KNOWN_AREAS);
+        try {
+            const raw = localStorage.getItem(KNOWN_AREAS_KEY);
+            if (raw) {
+                const list = JSON.parse(raw);
+                if (Array.isArray(list)) {
+                    list.forEach(a => {
+                        const trimmed = String(a || '').trim();
+                        if (trimmed) set.add(trimmed);
+                    });
+                }
+            }
+        } catch (e) {}
+
+        const harvest = (visits) => {
+            if (Array.isArray(visits)) {
+                visits.forEach(v => {
+                    const a = (v && (v.area || (v.ocr_extracted_data && v.ocr_extracted_data.area))) || '';
+                    const trimmed = String(a).trim();
+                    if (trimmed) set.add(trimmed);
+                });
+            }
+        };
+        harvest(State.allVisitsCache);
+        harvest(State.visits);
+        harvest(getLocalVisits());
+
+        return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    }
+
+    function saveKnownArea(area) {
+        if (!area || typeof area !== 'string') return;
+        const clean = area.trim();
+        if (!clean) return;
+
+        const current = getKnownAreas();
+        if (!current.some(item => item.toLowerCase() === clean.toLowerCase())) {
+            current.push(clean);
+            current.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            try {
+                localStorage.setItem(KNOWN_AREAS_KEY, JSON.stringify(current));
+            } catch (e) {}
+        }
+        updateAreaDatalists();
+    }
+
+    function updateAreaDatalists() {
+        const areas = getKnownAreas();
+        const datalists = [
+            document.getElementById('areaDatalist'),
+            document.getElementById('editAreaDatalist')
+        ];
+
+        datalists.forEach(dl => {
+            if (!dl) return;
+            dl.innerHTML = areas.map(a => `<option value="${escapeHtml(a)}"></option>`).join('');
+        });
+    }
+
+    window.getKnownAreas = getKnownAreas;
+    window.saveKnownArea = saveKnownArea;
+    window.updateAreaDatalists = updateAreaDatalists;
 
     // --------------------------------------------------------------------------
     // ROBUST CLIENT STORAGE: INDEXEDDB + COMPRESSED LOCALSTORAGE
@@ -1537,6 +1713,8 @@
         }
 
         const bName = (visitData.business_name || visitData.client_name || '').trim();
+        const areaStr = (visitData.area || '').trim();
+        const refStr = (visitData.reference_of || '').trim();
         const addrA = (visitData.address_option_a || visitData.client_address || '').trim();
         const addrB = (visitData.address_option_b || visitData.location_address || '').trim();
 
@@ -1547,6 +1725,8 @@
             employee_id: (visitData.employee_id || State.currentUser?.employee_id || '').trim(),
             business_name: bName,
             client_name: bName,
+            area: areaStr,
+            reference_of: refStr,
             address_option_a: addrA,
             address_option_b: addrB,
             client_address: addrA,
@@ -1558,7 +1738,7 @@
             contact_person_phone: (visitData.contact_person_phone || '').trim(),
             contact_person_email: (visitData.contact_person_email || '').trim(),
             pincode: (visitData.pincode || '').trim(),
-            status: visitData.status || 'Follow-up Required',
+            status: visitData.status || 'Positive',
             follow_up_date: visitData.follow_up_date || null,
             remarks: (visitData.remarks || '').trim(),
             visiting_card_front_url: cardFrontUrl,
@@ -1566,9 +1746,17 @@
             visiting_card_url: cardFrontUrl,
             office_photo_url: officePhotoUrl,
             ocr_raw_text: visitData.ocr_raw_text || null,
-            ocr_extracted_data: visitData.ocr_extracted_data || {},
+            ocr_extracted_data: {
+                ...(visitData.ocr_extracted_data || {}),
+                area: areaStr,
+                reference_of: refStr
+            },
             created_at: new Date().toISOString()
         });
+
+        if (areaStr) {
+            saveKnownArea(areaStr);
+        }
 
         // Save to central cloud database first
         let savedCloud = null;
@@ -1592,6 +1780,123 @@
 
         return recordToKeep;
     }
+
+    async function updateClientVisit(visitData) {
+        if (!visitData || !visitData.id) return null;
+
+        const visitId = String(visitData.id).trim();
+
+        // 1. Upload any newly provided images
+        let cardFrontUrl = visitData.visiting_card_front_url || null;
+        let cardBackUrl = visitData.visiting_card_back_url || null;
+        let officePhotoUrl = visitData.office_photo_url || null;
+
+        if (visitData.visitingCardFrontFile) {
+            cardFrontUrl = await uploadVisitImage(visitData.visitingCardFrontFile, 'visiting_cards_front');
+        }
+        if (visitData.visitingCardBackFile) {
+            cardBackUrl = await uploadVisitImage(visitData.visitingCardBackFile, 'visiting_cards_back');
+        }
+        if (visitData.officePhotoFile) {
+            officePhotoUrl = await uploadVisitImage(visitData.officePhotoFile, 'office_photos');
+        }
+
+        // 2. Locate existing record to keep immutable or unedited values
+        const local = getLocalVisits();
+        const existing = (State.allVisitsCache || []).find(v => String(v.id) === visitId) ||
+                         (State.visits || []).find(v => String(v.id) === visitId) ||
+                         local.find(v => String(v.id) === visitId) || {};
+
+        const bName = (visitData.business_name !== undefined ? visitData.business_name : (existing.business_name || existing.client_name || '')).trim();
+        const areaStr = (visitData.area !== undefined ? visitData.area : (existing.area || '')).trim();
+        const refStr = (visitData.reference_of !== undefined ? visitData.reference_of : (existing.reference_of || '')).trim();
+        const addrA = (visitData.address_option_a !== undefined ? visitData.address_option_a : (existing.address_option_a || existing.client_address || '')).trim();
+        const addrB = (visitData.address_option_b !== undefined ? visitData.address_option_b : (existing.address_option_b || existing.location_address || '')).trim();
+
+        const cleanRecord = prepareVisitForDatabase({
+            ...existing,
+            id: visitId,
+            sales_rep_id: existing.sales_rep_id || (State.currentUser?.id || 'rep-002'),
+            sales_rep_name: sanitizeRepName(existing.sales_rep_name || State.currentUser?.name, existing.employee_id, existing.sales_rep_id),
+            employee_id: (existing.employee_id || State.currentUser?.employee_id || '').trim(),
+            business_name: bName || 'Client Visit',
+            client_name: bName || 'Client Visit',
+            area: areaStr,
+            reference_of: refStr,
+            address_option_a: addrA,
+            address_option_b: addrB,
+            client_address: addrA,
+            visit_time: visitData.visit_time || existing.visit_time || new Date().toISOString(),
+            latitude: existing.latitude !== undefined ? existing.latitude : null,
+            longitude: existing.longitude !== undefined ? existing.longitude : null,
+            location_address: addrB,
+            contact_person_name: (visitData.contact_person_name !== undefined ? visitData.contact_person_name : (existing.contact_person_name || '')).trim(),
+            contact_person_phone: (visitData.contact_person_phone !== undefined ? visitData.contact_person_phone : (existing.contact_person_phone || '')).trim(),
+            contact_person_email: (visitData.contact_person_email !== undefined ? visitData.contact_person_email : (existing.contact_person_email || '')).trim(),
+            pincode: (visitData.pincode !== undefined ? visitData.pincode : (existing.pincode || '')).trim(),
+            status: visitData.status || existing.status || 'Positive',
+            follow_up_date: visitData.follow_up_date !== undefined ? visitData.follow_up_date : (existing.follow_up_date || null),
+            remarks: (visitData.remarks !== undefined ? visitData.remarks : (existing.remarks || '')).trim(),
+            visiting_card_front_url: cardFrontUrl || existing.visiting_card_front_url || existing.visiting_card_url || null,
+            visiting_card_back_url: cardBackUrl || existing.visiting_card_back_url || null,
+            visiting_card_url: cardFrontUrl || existing.visiting_card_url || null,
+            office_photo_url: officePhotoUrl || existing.office_photo_url || null,
+            ocr_raw_text: existing.ocr_raw_text || null,
+            ocr_extracted_data: {
+                ...(existing.ocr_extracted_data || {}),
+                area: areaStr,
+                reference_of: refStr
+            },
+            created_at: existing.created_at || new Date().toISOString()
+        });
+
+        if (areaStr) {
+            saveKnownArea(areaStr);
+        }
+
+        // 3. Save to Supabase Cloud Database
+        let savedCloud = null;
+        try {
+            savedCloud = await CloudDB.saveVisit(cleanRecord);
+        } catch (e) {
+            console.warn('Cloud updateVisit attempt failed:', e);
+        }
+
+        const recordToKeep = savedCloud || cleanRecord;
+
+        // 4. Update in local storage
+        const localIdx = local.findIndex(v => String(v.id) === visitId);
+        if (localIdx >= 0) {
+            local[localIdx] = recordToKeep;
+        } else {
+            local.unshift(recordToKeep);
+        }
+        saveLocalVisits(local);
+
+        // 5. Update in IndexedDB
+        try {
+            const db = await openVisitsIDB();
+            if (db) {
+                const tx = db.transaction([IDB_STORE], 'readwrite');
+                tx.objectStore(IDB_STORE).put(recordToKeep);
+            }
+        } catch (e) {}
+
+        // 6. Update in-memory caches
+        if (Array.isArray(State.allVisitsCache)) {
+            const idx = State.allVisitsCache.findIndex(v => String(v.id) === visitId);
+            if (idx >= 0) State.allVisitsCache[idx] = recordToKeep;
+            else State.allVisitsCache.unshift(recordToKeep);
+        }
+        if (Array.isArray(State.visits)) {
+            const idx = State.visits.findIndex(v => String(v.id) === visitId);
+            if (idx >= 0) State.visits[idx] = recordToKeep;
+            else State.visits.unshift(recordToKeep);
+        }
+
+        return recordToKeep;
+    }
+    window.updateClientVisit = updateClientVisit;
 
     // --------------------------------------------------------------------------
     // NORMALIZATION & COMMON ACCOUNTS SERVICE
@@ -1796,7 +2101,19 @@
 
         // 4. Status Filter
         if (filters.status && filters.status !== 'ALL') {
-            filtered = filtered.filter(v => v.status === filters.status);
+            filtered = filtered.filter(v => {
+                const s = (v.status || '').trim();
+                if (filters.status === 'Positive') {
+                    return s === 'Positive' || s === 'Successful Closed';
+                }
+                if (filters.status === 'Meet Again') {
+                    return s === 'Meet Again' || s === 'Follow-up Required';
+                }
+                if (filters.status === 'Negative') {
+                    return s === 'Negative';
+                }
+                return s === filters.status;
+            });
         }
 
         // 5. Keyword Search
@@ -1804,6 +2121,8 @@
             const query = filters.search.trim().toLowerCase();
             filtered = filtered.filter(v => {
                 const bName = (v.business_name || v.client_name || '').toLowerCase();
+                const area = (v.area || '').toLowerCase();
+                const ref = (v.reference_of || '').toLowerCase();
                 const person = (v.contact_person_name || '').toLowerCase();
                 const phone = (v.contact_person_phone || '');
                 const email = (v.contact_person_email || '').toLowerCase();
@@ -1812,7 +2131,7 @@
                 const addrB = (v.address_option_b || v.location_address || '').toLowerCase();
                 const notes = (v.remarks || '').toLowerCase();
 
-                return bName.includes(query) || person.includes(query) || phone.includes(query) || email.includes(query) || pin.includes(query) || addrA.includes(query) || addrB.includes(query) || notes.includes(query);
+                return bName.includes(query) || area.includes(query) || ref.includes(query) || person.includes(query) || phone.includes(query) || email.includes(query) || pin.includes(query) || addrA.includes(query) || addrB.includes(query) || notes.includes(query);
             });
         }
 
@@ -2012,15 +2331,15 @@
             return;
         }
 
-        // Ordered with user-requested fields first:
-        // BUSINESS NAME / NAME OF PERSON / PHONE NO / REMARKS / NEXT FOLLOW UP DATE
         const headers = [
             'Business Name',
+            'Area',
+            'Meeting Status',
             'Name of Person Met',
             'Contact Mobile Number',
-            'Remarks / Discussion',
+            'Reference of',
+            'Remarks',
             'Next Follow-up Date',
-            'Meeting Status',
             'Visiting Card Photo',
             'Office Photo',
             'Visit Date & Time',
@@ -2036,6 +2355,8 @@
         const rows = exportData.map(v => {
             const dateStr = v.visit_time ? new Date(v.visit_time).toLocaleString() : '';
             const bName = v.business_name || v.client_name || '';
+            const areaStr = v.area || (v.ocr_extracted_data && v.ocr_extracted_data.area) || '';
+            const refStr = v.reference_of || (v.ocr_extracted_data && v.ocr_extracted_data.reference_of) || '';
             const addrA = v.address_option_a || v.client_address || '';
             const addrB = v.address_option_b || v.location_address || '';
             const mapsUrl = (v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : '';
@@ -2046,13 +2367,19 @@
                 ? ((String(v.office_photo_url).startsWith('http')) ? v.office_photo_url : 'Yes (Saved on Device)')
                 : 'No';
 
+            let statusClean = v.status || '';
+            if (statusClean === 'Successful Closed') statusClean = 'Positive';
+            else if (statusClean === 'Follow-up Required') statusClean = 'Meet Again';
+
             return [
                 bName,
+                areaStr,
+                statusClean,
                 v.contact_person_name || '',
                 v.contact_person_phone || '',
+                refStr,
                 v.remarks || '',
-                v.follow_up_date || (v.status === 'Successful Closed' ? 'Deal Closed' : ''),
-                v.status || '',
+                v.follow_up_date || (statusClean === 'Positive' ? 'Deal Finalized' : ''),
                 cardAttached,
                 officeAttached,
                 dateStr,
@@ -4622,40 +4949,54 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     }
 
     // --------------------------------------------------------------------------
-    // MEETING STATUS CARDS
+    // MEETING STATUS SELECT HANDLERS
     // --------------------------------------------------------------------------
-    function setupMeetingStatusCards() {
-        const closedCard = document.getElementById('statusClosedCard');
-        const followupCard = document.getElementById('statusFollowupCard');
-        const followupDateContainer = document.getElementById('followupDateContainer');
+    function setupMeetingStatusSelect() {
+        const select = document.getElementById('meetingStatusSelect');
+        const followupContainer = document.getElementById('followupDateContainer');
+        const followupInput = document.getElementById('followupDateInput');
 
-        function updateStatusUI(selectedStatus) {
-            if (selectedStatus === 'Successful Closed') {
-                closedCard.classList.add('border-emerald-500', 'bg-emerald-50/40');
-                closedCard.classList.remove('border-slate-200', 'bg-white');
-                followupCard.classList.remove('border-blue-500', 'bg-blue-50/40');
-                followupCard.classList.add('border-slate-200', 'bg-white');
-                followupDateContainer.classList.add('hidden');
+        if (!select) return;
+
+        function updateFollowupVisibility() {
+            if (select.value === 'Meet Again') {
+                followupContainer?.classList.remove('hidden');
+                if (followupInput) followupInput.required = true;
             } else {
-                followupCard.classList.add('border-blue-500', 'bg-blue-50/40');
-                followupCard.classList.remove('border-slate-200', 'bg-white');
-                closedCard.classList.remove('border-emerald-500', 'bg-emerald-50/40');
-                closedCard.classList.add('border-slate-200', 'bg-white');
-                followupDateContainer.classList.remove('hidden');
+                followupContainer?.classList.add('hidden');
+                if (followupInput) {
+                    followupInput.required = false;
+                    followupInput.value = '';
+                }
             }
         }
 
-        closedCard?.addEventListener('click', () => {
-            const radio = closedCard.querySelector('input');
-            if (radio) radio.checked = true;
-            updateStatusUI('Successful Closed');
-        });
+        select.addEventListener('change', updateFollowupVisibility);
+        updateFollowupVisibility();
+    }
 
-        followupCard?.addEventListener('click', () => {
-            const radio = followupCard.querySelector('input');
-            if (radio) radio.checked = true;
-            updateStatusUI('Follow-up Required');
-        });
+    function setupEditMeetingStatusSelect() {
+        const select = document.getElementById('editMeetingStatusSelect');
+        const followupContainer = document.getElementById('editFollowupDateContainer');
+        const followupInput = document.getElementById('editFollowupDateInput');
+
+        if (!select) return;
+
+        function updateFollowupVisibility() {
+            if (select.value === 'Meet Again') {
+                followupContainer?.classList.remove('hidden');
+                if (followupInput) followupInput.required = true;
+            } else {
+                followupContainer?.classList.add('hidden');
+                if (followupInput) {
+                    followupInput.required = false;
+                    followupInput.value = '';
+                }
+            }
+        }
+
+        select.addEventListener('change', updateFollowupVisibility);
+        updateFollowupVisibility();
     }
 
     // --------------------------------------------------------------------------
@@ -4699,6 +5040,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             }
 
             const businessName = document.getElementById('businessNameInput').value.trim();
+            const area = (document.getElementById('areaInput')?.value || '').trim();
             const addressOptionA = document.getElementById('addressOptionAInput').value.trim();
             const addressOptionB = document.getElementById('addressOptionBInput').value.trim();
             const visitTime = document.getElementById('visitTimeInput').value;
@@ -4706,10 +5048,12 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const contactPersonPhone = document.getElementById('contactPersonPhoneInput').value.trim();
             const contactPersonEmail = document.getElementById('contactPersonEmailInput').value.trim();
             const pincode = document.getElementById('pincodeInput').value.trim();
-            const statusRadio = document.querySelector('input[name="meetingStatus"]:checked');
-            const status = statusRadio ? statusRadio.value : 'Follow-up Required';
-            const followUpDate = document.getElementById('followupDateInput').value || null;
-            const remarks = document.getElementById('remarksInput').value.trim();
+            
+            const statusSelect = document.getElementById('meetingStatusSelect');
+            const status = statusSelect ? statusSelect.value : 'Positive';
+            const followUpDate = document.getElementById('followupDateInput')?.value || null;
+            const referenceOf = (document.getElementById('referenceOfInput')?.value || '').trim();
+            const remarks = (document.getElementById('remarksInput')?.value || '').trim();
 
             if (!businessName) {
                 alert('Business Name is required.');
@@ -4717,9 +5061,21 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 return;
             }
 
-            if (status === 'Follow-up Required' && !followUpDate) {
-                alert('⚠️ Next Follow-up Date is required!\n\nPlease select the Next Follow-up Date before submitting.');
-                document.getElementById('followupDateInput').focus();
+            if (!area) {
+                alert('⚠️ Area is mandatory!\n\nPlease enter the Area name before submitting.');
+                document.getElementById('areaInput')?.focus();
+                return;
+            }
+
+            if (!status) {
+                alert('⚠️ Status is mandatory!\n\nPlease select a status: Positive, Meet Again, or Negative.');
+                statusSelect?.focus();
+                return;
+            }
+
+            if (status === 'Meet Again' && !followUpDate) {
+                alert('⚠️ Next Follow-up Date is required when status is "Meet Again"!\n\nPlease select the Next Follow-up Date before submitting.');
+                document.getElementById('followupDateInput')?.focus();
                 return;
             }
 
@@ -4744,6 +5100,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     employee_id: selectedEmpId,
                     business_name: businessName,
                     client_name: businessName,
+                    area: area,
+                    reference_of: referenceOf,
                     address_option_a: addressOptionA,
                     address_option_b: addressOptionB || State.gpsAddress,
                     client_address: addressOptionA,
@@ -4762,17 +5120,22 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     visitingCardBackFile: State.visitingCardBackFile,
                     officePhotoFile: State.officePhotoFile,
                     ocr_raw_text: State.ocrRawText,
-                    ocr_extracted_data: State.extractedOcrData || {}
+                    ocr_extracted_data: {
+                        ...(State.extractedOcrData || {}),
+                        area: area,
+                        reference_of: referenceOf
+                    }
                 };
 
                 const savedRecord = await recordClientVisit(visitPayload);
+                saveKnownArea(area);
 
-                if (status === 'Successful Closed') {
+                if (status === 'Positive' || status === 'Successful Closed') {
                     if (window.confetti) {
                         window.confetti({ particleCount: 120, spread: 70, origin: { y: 0.6 } });
                     }
-                    alert(`Deal Closed! Visit for "${businessName}" recorded successfully.`);
-                } else if (status === 'Follow-up Required' && followUpDate) {
+                    alert(`Positive Visit Recorded! Visit for "${businessName}" saved successfully.`);
+                } else if ((status === 'Meet Again' || status === 'Follow-up Required') && followUpDate) {
                     // Trigger the 11:30 AM Follow-Up Reminder Modal
                     const reminderModal = document.getElementById('followupReminderModal');
                     const reminderDateTime = document.getElementById('modalReminderDateTime');
@@ -4862,7 +5225,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 State.visitingCardBackFile = null;
                 State.officePhotoFile = null;
                 State.ocrRawText = '';
-                State.extractedOcrData = { companyName: '', contactPerson: '', phone: '', email: '', pincode: '', address: '', designation: '' };
+                State.extractedOcrData = { companyName: '', contactPerson: '', phone: '', email: '', pincode: '', address: '', designation: '', area: '', reference_of: '' };
 
                 // Cleanly reset duplicate warning & badge states
                 document.getElementById('businessNameStatusBadge')?.classList.add('hidden');
@@ -4876,9 +5239,10 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
                 setupCurrentTime();
                 captureLiveGpsLocation(); // Re-fetch GPS for next visit
+                updateAreaDatalists();
                 initLucideIcons();
                 await loadAndRenderVisits();
-                if (status !== 'Follow-up Required' || !followUpDate) {
+                if ((status !== 'Meet Again' && status !== 'Follow-up Required') || !followUpDate) {
                     switchTab('visits');
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 }
@@ -4991,8 +5355,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
 
     function updateKpiStats(visits) {
         const total = visits.length;
-        const closed = visits.filter(v => v.status === 'Successful Closed').length;
-        const followups = visits.filter(v => v.status === 'Follow-up Required').length;
+        const closed = visits.filter(v => v.status === 'Positive' || v.status === 'Successful Closed').length;
+        const followups = visits.filter(v => v.status === 'Meet Again' || v.status === 'Follow-up Required').length;
         const convRate = total > 0 ? ((closed / total) * 100).toFixed(1) + '%' : '0%';
         const commonCount = visits.filter(v => State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(v.business_name || v.client_name))).length;
 
@@ -5023,7 +5387,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         const todayStr = `${y}-${m}-${d}`;
 
         const todayFollowups = (State.visits || []).filter(v => {
-            return v.status === 'Follow-up Required' && String(v.follow_up_date || '').startsWith(todayStr);
+            const isFollowup = v.status === 'Meet Again' || v.status === 'Follow-up Required';
+            return isFollowup && String(v.follow_up_date || '').startsWith(todayStr);
         });
 
         if (todayFollowups.length === 0) {
@@ -5097,9 +5462,24 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         emptyState?.classList.add('hidden');
 
         const html = visits.map(visit => {
-            const isClosed = visit.status === 'Successful Closed';
-            const statusBadgeClass = isClosed ? 'badge-closed' : 'badge-followup';
-            const statusIcon = isClosed ? 'check-check' : 'calendar';
+            let statusBadgeClass = 'bg-blue-50 text-blue-700 border border-blue-200';
+            let statusIcon = 'calendar';
+            let displayStatus = visit.status || 'Positive';
+
+            if (displayStatus === 'Positive' || displayStatus === 'Successful Closed') {
+                statusBadgeClass = 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+                statusIcon = 'check-circle-2';
+                displayStatus = 'Positive';
+            } else if (displayStatus === 'Meet Again' || displayStatus === 'Follow-up Required') {
+                statusBadgeClass = 'bg-blue-50 text-blue-700 border border-blue-200';
+                statusIcon = 'clock';
+                displayStatus = 'Meet Again';
+            } else if (displayStatus === 'Negative') {
+                statusBadgeClass = 'bg-rose-50 text-rose-700 border border-rose-200';
+                statusIcon = 'x-circle';
+                displayStatus = 'Negative';
+            }
+
             const visitDate = visit.visit_time ? new Date(visit.visit_time) : new Date();
             const dateFormatted = visitDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
             const timeFormatted = visitDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -5107,6 +5487,8 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const googleMapsLink = hasGps ? getGoogleMapsUrl(visit.latitude, visit.longitude) : null;
             const cleanPhone = (visit.contact_person_phone || '').replace(/[^\d+]/g, '');
             const businessName = visit.business_name || visit.client_name || 'Business Name';
+            const areaDisplay = visit.area || (visit.ocr_extracted_data && visit.ocr_extracted_data.area) || '';
+            const refDisplay = visit.reference_of || (visit.ocr_extracted_data && visit.ocr_extracted_data.reference_of) || '';
             const addrOptionA = visit.address_option_a || visit.client_address || 'Address not specified';
             const addrOptionB = visit.address_option_b || visit.location_address || '';
             const hasCardFront = Boolean(visit.visiting_card_front_url || visit.visiting_card_url);
@@ -5150,13 +5532,18 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                             <div>
                                 <div class="flex items-center gap-2 flex-wrap">
                                     <span class="font-extrabold text-slate-900 text-base">${escapeHtml(businessName)}</span>
+                                    ${areaDisplay ? `
+                                        <span class="inline-flex items-center gap-1 text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200/90 px-2 py-0.5 rounded-md shadow-2xs">
+                                            <i data-lucide="map-pin" class="w-3 h-3 text-amber-600"></i> ${escapeHtml(areaDisplay)}
+                                        </span>
+                                    ` : ''}
                                     ${isCommon ? `
                                         <span class="inline-flex items-center gap-1 text-[10px] font-extrabold bg-purple-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">
                                             <i data-lucide="layers" class="w-3 h-3"></i> Common
                                         </span>
                                     ` : ''}
                                 </div>
-                                <div class="text-xs text-slate-500 flex items-center gap-2">
+                                <div class="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
                                     <span class="font-medium text-blue-600">${escapeHtml(visit.sales_rep_name)}</span>
                                     <span>•</span>
                                     <span>${dateFormatted} at ${timeFormatted}</span>
@@ -5164,11 +5551,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                             </div>
                         </div>
 
-                        <div class="flex items-center space-x-2">
+                        <div class="flex items-center space-x-1 sm:space-x-2 self-end sm:self-center">
                             <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${statusBadgeClass}">
                                 <i data-lucide="${statusIcon}" class="w-3.5 h-3.5"></i>
-                                ${escapeHtml(visit.status)}
+                                ${escapeHtml(displayStatus)}
                             </span>
+                            <button onclick="window.openEditVisitModal('${visit.id}', event)" class="text-slate-400 hover:text-blue-600 p-1.5 rounded-lg hover:bg-blue-50 transition-colors" title="Edit Visit Record" aria-label="Edit Visit">
+                                <i data-lucide="edit-3" class="w-4 h-4"></i>
+                            </button>
                             <button onclick="window.handleDeleteVisit('${visit.id}', event)" class="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Delete Visit Record" aria-label="Delete Visit">
                                 <i data-lucide="trash-2" class="w-4 h-4"></i>
                             </button>
@@ -5200,11 +5590,24 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                         </div>
                     </div>
 
+                    ${refDisplay ? `
+                        <!-- REFERENCE OF -->
+                        <div class="bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100/80 text-xs flex items-center justify-between">
+                            <div class="flex items-center gap-1.5">
+                                <i data-lucide="user-check" class="w-3.5 h-3.5 text-indigo-600"></i>
+                                <span class="text-indigo-700 font-bold uppercase tracking-wider text-[10px]">Reference Of</span>
+                            </div>
+                            <span class="font-extrabold text-indigo-950 text-xs">${escapeHtml(refDisplay)}</span>
+                        </div>
+                    ` : ''}
+
                     <!-- 4. REMARKS -->
-                    <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs space-y-1">
-                        <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px] block">Remarks</span>
-                        <p class="text-slate-700 whitespace-pre-line leading-relaxed font-medium">${escapeHtml(visit.remarks || 'No remarks provided.')}</p>
-                    </div>
+                    ${(visit.remarks && visit.remarks.trim()) ? `
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 text-xs space-y-1">
+                            <span class="text-slate-400 font-bold uppercase tracking-wider text-[10px] block">Remarks</span>
+                            <p class="text-slate-700 whitespace-pre-line leading-relaxed font-medium">${escapeHtml(visit.remarks)}</p>
+                        </div>
+                    ` : ''}
 
                     <!-- 5. NEXT FOLLOW UP DATE -->
                     <div class="p-3 rounded-xl border ${visit.follow_up_date ? 'bg-amber-50/70 border-amber-200/80' : 'bg-slate-50 border-slate-100'} flex items-center justify-between flex-wrap gap-2 text-xs">
@@ -5282,6 +5685,253 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         container.innerHTML = html;
         initLucideIcons();
     }
+
+    // --------------------------------------------------------------------------
+    // EDIT VISIT MODAL HANDLERS
+    // --------------------------------------------------------------------------
+    State.editVisitingCardFrontFile = null;
+    State.editVisitingCardBackFile = null;
+    State.editOfficePhotoFile = null;
+
+    function openEditVisitModal(visitId, event) {
+        if (event) event.stopPropagation();
+        const strId = String(visitId).trim();
+        const all = [...(State.visits || []), ...(State.allVisitsCache || []), ...getLocalVisits()];
+        const visit = all.find(v => String(v.id) === strId);
+        if (!visit) {
+            alert('Visit record not found.');
+            return;
+        }
+
+        const modal = document.getElementById('editVisitModal');
+        if (!modal) return;
+
+        // Populate fields
+        document.getElementById('editVisitId').value = visit.id;
+        document.getElementById('editBusinessNameInput').value = visit.business_name || visit.client_name || '';
+        document.getElementById('editAreaInput').value = visit.area || (visit.ocr_extracted_data && visit.ocr_extracted_data.area) || '';
+        
+        // Date & time formatting for datetime-local: YYYY-MM-DDTHH:mm
+        let dtValue = '';
+        if (visit.visit_time) {
+            const dt = new Date(visit.visit_time);
+            if (!isNaN(dt.getTime())) {
+                const yr = dt.getFullYear();
+                const mo = String(dt.getMonth() + 1).padStart(2, '0');
+                const da = String(dt.getDate()).padStart(2, '0');
+                const ho = String(dt.getHours()).padStart(2, '0');
+                const mi = String(dt.getMinutes()).padStart(2, '0');
+                dtValue = `${yr}-${mo}-${da}T${ho}:${mi}`;
+            }
+        }
+        document.getElementById('editVisitTimeInput').value = dtValue;
+
+        document.getElementById('editContactPersonNameInput').value = visit.contact_person_name || '';
+        document.getElementById('editContactPersonPhoneInput').value = visit.contact_person_phone || '';
+        document.getElementById('editContactPersonEmailInput').value = visit.contact_person_email || '';
+        document.getElementById('editPincodeInput').value = visit.pincode || '';
+
+        // Status
+        let cleanStatus = visit.status || 'Positive';
+        if (cleanStatus === 'Successful Closed') cleanStatus = 'Positive';
+        else if (cleanStatus === 'Follow-up Required') cleanStatus = 'Meet Again';
+        
+        const statusSelect = document.getElementById('editMeetingStatusSelect');
+        if (statusSelect) statusSelect.value = cleanStatus;
+
+        // Follow up date
+        const followupContainer = document.getElementById('editFollowupDateContainer');
+        const followupInput = document.getElementById('editFollowupDateInput');
+        if (followupInput) {
+            followupInput.value = visit.follow_up_date || '';
+        }
+        if (cleanStatus === 'Meet Again') {
+            followupContainer?.classList.remove('hidden');
+        } else {
+            followupContainer?.classList.add('hidden');
+        }
+
+        // Reference of & Remarks & Address A
+        document.getElementById('editReferenceOfInput').value = visit.reference_of || (visit.ocr_extracted_data && visit.ocr_extracted_data.reference_of) || '';
+        document.getElementById('editRemarksInput').value = visit.remarks || '';
+        document.getElementById('editAddressOptionAInput').value = visit.address_option_a || visit.client_address || '';
+
+        // Reset replacement files
+        State.editVisitingCardFrontFile = null;
+        State.editVisitingCardBackFile = null;
+        State.editOfficePhotoFile = null;
+
+        // Photo previews
+        const frontPreview = document.getElementById('editCardFrontPreview');
+        const backPreview = document.getElementById('editCardBackPreview');
+        const officePreview = document.getElementById('editOfficePhotoPreview');
+
+        const cardFront = visit.visiting_card_front_url || visit.visiting_card_url;
+        if (frontPreview) {
+            frontPreview.innerHTML = cardFront 
+                ? `<img src="${cardFront}" class="w-full h-full object-cover rounded">` 
+                : `<span class="text-[10px] text-slate-400">None</span>`;
+        }
+        if (backPreview) {
+            backPreview.innerHTML = visit.visiting_card_back_url 
+                ? `<img src="${visit.visiting_card_back_url}" class="w-full h-full object-cover rounded">` 
+                : `<span class="text-[10px] text-slate-400">None</span>`;
+        }
+        if (officePreview) {
+            officePreview.innerHTML = visit.office_photo_url 
+                ? `<img src="${visit.office_photo_url}" class="w-full h-full object-cover rounded">` 
+                : `<span class="text-[10px] text-slate-400">None</span>`;
+        }
+
+        updateAreaDatalists();
+        modal.classList.remove('hidden');
+        initLucideIcons();
+    }
+
+    function closeEditVisitModal() {
+        const modal = document.getElementById('editVisitModal');
+        if (modal) modal.classList.add('hidden');
+        State.editVisitingCardFrontFile = null;
+        State.editVisitingCardBackFile = null;
+        State.editOfficePhotoFile = null;
+    }
+
+    function setupEditVisitModal() {
+        setupEditMeetingStatusSelect();
+
+        // Photo file replacement handlers
+        const frontInput = document.getElementById('editVisitingCardFrontInput');
+        const backInput = document.getElementById('editVisitingCardBackInput');
+        const officeInput = document.getElementById('editOfficePhotoInput');
+
+        frontInput?.addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) {
+                State.editVisitingCardFrontFile = file;
+                const url = URL.createObjectURL(file);
+                const p = document.getElementById('editCardFrontPreview');
+                if (p) p.innerHTML = `<img src="${url}" class="w-full h-full object-cover rounded">`;
+            }
+        });
+
+        backInput?.addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) {
+                State.editVisitingCardBackFile = file;
+                const url = URL.createObjectURL(file);
+                const p = document.getElementById('editCardBackPreview');
+                if (p) p.innerHTML = `<img src="${url}" class="w-full h-full object-cover rounded">`;
+            }
+        });
+
+        officeInput?.addEventListener('change', async (e) => {
+            const file = e.target.files && e.target.files[0];
+            if (file) {
+                State.editOfficePhotoFile = file;
+                const url = URL.createObjectURL(file);
+                const p = document.getElementById('editOfficePhotoPreview');
+                if (p) p.innerHTML = `<img src="${url}" class="w-full h-full object-cover rounded">`;
+            }
+        });
+
+        // Form submit handler
+        const form = document.getElementById('editVisitForm');
+        form?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const visitId = document.getElementById('editVisitId').value;
+            const businessName = document.getElementById('editBusinessNameInput').value.trim();
+            const area = document.getElementById('editAreaInput').value.trim();
+            const visitTime = document.getElementById('editVisitTimeInput').value;
+            const contactPersonName = document.getElementById('editContactPersonNameInput').value.trim();
+            const contactPersonPhone = document.getElementById('editContactPersonPhoneInput').value.trim();
+            const contactPersonEmail = document.getElementById('editContactPersonEmailInput').value.trim();
+            const pincode = document.getElementById('editPincodeInput').value.trim();
+            const status = document.getElementById('editMeetingStatusSelect').value;
+            const followUpDate = document.getElementById('editFollowupDateInput').value || null;
+            const referenceOf = document.getElementById('editReferenceOfInput').value.trim();
+            const remarks = document.getElementById('editRemarksInput').value.trim();
+            const addressOptionA = document.getElementById('editAddressOptionAInput').value.trim();
+
+            if (!businessName) {
+                alert('Business Name is required.');
+                document.getElementById('editBusinessNameInput').focus();
+                return;
+            }
+
+            if (!area) {
+                alert('⚠️ Area is mandatory!\n\nPlease enter the Area name before saving.');
+                document.getElementById('editAreaInput').focus();
+                return;
+            }
+
+            if (!contactPersonName) {
+                alert('Contact Person Name is required.');
+                document.getElementById('editContactPersonNameInput').focus();
+                return;
+            }
+
+            if (!contactPersonPhone) {
+                alert('Contact Mobile Number is required.');
+                document.getElementById('editContactPersonPhoneInput').focus();
+                return;
+            }
+
+            if (status === 'Meet Again' && !followUpDate) {
+                alert('⚠️ Next Follow-up Date is required when status is "Meet Again"!\n\nPlease select the Next Follow-up Date.');
+                document.getElementById('editFollowupDateInput').focus();
+                return;
+            }
+
+            const saveBtn = document.getElementById('saveEditVisitBtn');
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> Saving...';
+            }
+
+            try {
+                const updatePayload = {
+                    id: visitId,
+                    business_name: businessName,
+                    client_name: businessName,
+                    area: area,
+                    reference_of: referenceOf,
+                    visit_time: visitTime ? new Date(visitTime).toISOString() : undefined,
+                    contact_person_name: contactPersonName,
+                    contact_person_phone: contactPersonPhone,
+                    contact_person_email: contactPersonEmail,
+                    pincode: pincode,
+                    status: status,
+                    follow_up_date: followUpDate,
+                    remarks: remarks,
+                    address_option_a: addressOptionA,
+                    visitingCardFrontFile: State.editVisitingCardFrontFile,
+                    visitingCardBackFile: State.editVisitingCardBackFile,
+                    officePhotoFile: State.editOfficePhotoFile
+                };
+
+                await updateClientVisit(updatePayload);
+                saveKnownArea(area);
+
+                closeEditVisitModal();
+                await loadAndRenderVisits();
+                alert(`Visit record for "${businessName}" updated successfully!`);
+            } catch (err) {
+                console.error('Failed to update visit:', err);
+                alert('Error updating visit: ' + (err.message || 'Unknown error'));
+            } finally {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i> Save Changes';
+                    initLucideIcons();
+                }
+            }
+        });
+    }
+
+    window.openEditVisitModal = openEditVisitModal;
+    window.closeEditVisitModal = closeEditVisitModal;
+    window.setupEditVisitModal = setupEditVisitModal;
 
     window.viewVisitPhoto = function(visitId, type) {
         const visits = State.visits || [];
@@ -6554,7 +7204,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         setupGpsDetection();
         setupVisitingCardUpload();
         setupOfficePhotoUpload();
-        setupMeetingStatusCards();
+        setupMeetingStatusSelect();
+        setupEditVisitModal();
+        updateAreaDatalists();
         setupVisitFormSubmission();
         setupDashboardFilters();
         setupTeamManagement();
