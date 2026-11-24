@@ -5694,98 +5694,147 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     State.editOfficePhotoFile = null;
 
     function openEditVisitModal(visitId, event) {
-        if (event) event.stopPropagation();
-        const strId = String(visitId).trim();
-        const all = [...(State.visits || []), ...(State.allVisitsCache || []), ...getLocalVisits()];
-        const visit = all.find(v => String(v.id) === strId);
-        if (!visit) {
-            alert('Visit record not found.');
-            return;
+        if (event) {
+            try { event.stopPropagation(); } catch (e) {}
+            try { event.preventDefault(); } catch (e) {}
         }
-
-        const modal = document.getElementById('editVisitModal');
-        if (!modal) return;
-
-        // Populate fields
-        document.getElementById('editVisitId').value = visit.id;
-        document.getElementById('editBusinessNameInput').value = visit.business_name || visit.client_name || '';
-        document.getElementById('editAreaInput').value = visit.area || (visit.ocr_extracted_data && visit.ocr_extracted_data.area) || '';
-        
-        // Date & time formatting for datetime-local: YYYY-MM-DDTHH:mm
-        let dtValue = '';
-        if (visit.visit_time) {
-            const dt = new Date(visit.visit_time);
-            if (!isNaN(dt.getTime())) {
-                const yr = dt.getFullYear();
-                const mo = String(dt.getMonth() + 1).padStart(2, '0');
-                const da = String(dt.getDate()).padStart(2, '0');
-                const ho = String(dt.getHours()).padStart(2, '0');
-                const mi = String(dt.getMinutes()).padStart(2, '0');
-                dtValue = `${yr}-${mo}-${da}T${ho}:${mi}`;
+        try {
+            const strId = String(visitId || '').trim();
+            const all = [...(State.visits || []), ...(State.allVisitsCache || []), ...getLocalVisits()];
+            const visit = all.find(v => String(v.id) === strId);
+            if (!visit) {
+                alert('Visit record not found.');
+                return;
             }
+
+            const modal = document.getElementById('editVisitModal');
+            if (!modal) {
+                console.error('editVisitModal element not found');
+                return;
+            }
+
+            // Populate Rep badge and ID info
+            const repAvatar = document.getElementById('editVisitRepAvatar');
+            const repName = document.getElementById('editVisitRepName');
+            const empId = document.getElementById('editVisitEmpId');
+            const idDisplay = document.getElementById('editVisitIdDisplay');
+
+            if (repAvatar) repAvatar.textContent = (visit.sales_rep_name || 'SR').slice(0, 2).toUpperCase();
+            if (repName) repName.textContent = visit.sales_rep_name || 'Sales Representative';
+            if (empId) empId.textContent = visit.employee_id || '';
+            if (idDisplay) idDisplay.textContent = visit.id || '-';
+
+            // Populate form fields
+            const idInput = document.getElementById('editVisitId');
+            if (idInput) idInput.value = visit.id;
+
+            const bNameInput = document.getElementById('editBusinessNameInput');
+            if (bNameInput) bNameInput.value = visit.business_name || visit.client_name || '';
+
+            const areaInput = document.getElementById('editAreaInput');
+            if (areaInput) areaInput.value = visit.area || (visit.ocr_extracted_data && visit.ocr_extracted_data.area) || '';
+            
+            // Date & time formatting for datetime-local: YYYY-MM-DDTHH:mm
+            let dtValue = '';
+            if (visit.visit_time) {
+                const dt = new Date(visit.visit_time);
+                if (!isNaN(dt.getTime())) {
+                    const yr = dt.getFullYear();
+                    const mo = String(dt.getMonth() + 1).padStart(2, '0');
+                    const da = String(dt.getDate()).padStart(2, '0');
+                    const ho = String(dt.getHours()).padStart(2, '0');
+                    const mi = String(dt.getMinutes()).padStart(2, '0');
+                    dtValue = `${yr}-${mo}-${da}T${ho}:${mi}`;
+                }
+            }
+            const timeInput = document.getElementById('editVisitTimeInput');
+            if (timeInput) timeInput.value = dtValue;
+
+            const nameInput = document.getElementById('editContactPersonNameInput');
+            if (nameInput) nameInput.value = visit.contact_person_name || '';
+
+            const phoneInput = document.getElementById('editContactPersonPhoneInput');
+            if (phoneInput) phoneInput.value = visit.contact_person_phone || '';
+
+            const emailInput = document.getElementById('editContactPersonEmailInput');
+            if (emailInput) emailInput.value = visit.contact_person_email || '';
+
+            const pincodeInput = document.getElementById('editPincodeInput');
+            if (pincodeInput) pincodeInput.value = visit.pincode || '';
+
+            // Status
+            let cleanStatus = visit.status || 'Positive';
+            if (cleanStatus === 'Successful Closed') cleanStatus = 'Positive';
+            else if (cleanStatus === 'Follow-up Required') cleanStatus = 'Meet Again';
+            
+            const statusSelect = document.getElementById('editMeetingStatusSelect');
+            if (statusSelect) statusSelect.value = cleanStatus;
+
+            // Follow up date
+            const followupContainer = document.getElementById('editFollowupDateContainer');
+            const followupInput = document.getElementById('editFollowupDateInput');
+            if (followupInput) {
+                followupInput.value = visit.follow_up_date || '';
+            }
+            if (cleanStatus === 'Meet Again') {
+                followupContainer?.classList.remove('hidden');
+                if (followupInput) followupInput.required = true;
+            } else {
+                followupContainer?.classList.add('hidden');
+                if (followupInput) followupInput.required = false;
+            }
+
+            // Reference of & Remarks & Address A
+            const refInput = document.getElementById('editReferenceOfInput');
+            if (refInput) refInput.value = visit.reference_of || (visit.ocr_extracted_data && visit.ocr_extracted_data.reference_of) || '';
+
+            const remarksInput = document.getElementById('editRemarksInput');
+            if (remarksInput) remarksInput.value = visit.remarks || '';
+
+            const addrAInput = document.getElementById('editAddressOptionAInput');
+            if (addrAInput) addrAInput.value = visit.address_option_a || visit.client_address || '';
+
+            // Reset replacement files
+            State.editVisitingCardFrontFile = null;
+            State.editVisitingCardBackFile = null;
+            State.editOfficePhotoFile = null;
+
+            const fInput = document.getElementById('editVisitingCardFrontInput');
+            const bInput = document.getElementById('editVisitingCardBackInput');
+            const oInput = document.getElementById('editOfficePhotoInput');
+            if (fInput) fInput.value = '';
+            if (bInput) bInput.value = '';
+            if (oInput) oInput.value = '';
+
+            // Photo previews
+            const frontPreview = document.getElementById('editCardFrontPreview');
+            const backPreview = document.getElementById('editCardBackPreview');
+            const officePreview = document.getElementById('editOfficePhotoPreview');
+
+            const cardFront = visit.visiting_card_front_url || visit.visiting_card_url;
+            if (frontPreview) {
+                frontPreview.innerHTML = cardFront 
+                    ? `<img src="${cardFront}" class="w-full h-full object-cover rounded">` 
+                    : `<span class="text-[10px] text-slate-400">None</span>`;
+            }
+            if (backPreview) {
+                backPreview.innerHTML = visit.visiting_card_back_url 
+                    ? `<img src="${visit.visiting_card_back_url}" class="w-full h-full object-cover rounded">` 
+                    : `<span class="text-[10px] text-slate-400">None</span>`;
+            }
+            if (officePreview) {
+                officePreview.innerHTML = visit.office_photo_url 
+                    ? `<img src="${visit.office_photo_url}" class="w-full h-full object-cover rounded">` 
+                    : `<span class="text-[10px] text-slate-400">None</span>`;
+            }
+
+            updateAreaDatalists();
+            modal.classList.remove('hidden');
+            initLucideIcons();
+        } catch (err) {
+            console.error('Error opening edit visit modal:', err);
+            alert('Unable to open edit window: ' + (err.message || 'Unknown error'));
         }
-        document.getElementById('editVisitTimeInput').value = dtValue;
-
-        document.getElementById('editContactPersonNameInput').value = visit.contact_person_name || '';
-        document.getElementById('editContactPersonPhoneInput').value = visit.contact_person_phone || '';
-        document.getElementById('editContactPersonEmailInput').value = visit.contact_person_email || '';
-        document.getElementById('editPincodeInput').value = visit.pincode || '';
-
-        // Status
-        let cleanStatus = visit.status || 'Positive';
-        if (cleanStatus === 'Successful Closed') cleanStatus = 'Positive';
-        else if (cleanStatus === 'Follow-up Required') cleanStatus = 'Meet Again';
-        
-        const statusSelect = document.getElementById('editMeetingStatusSelect');
-        if (statusSelect) statusSelect.value = cleanStatus;
-
-        // Follow up date
-        const followupContainer = document.getElementById('editFollowupDateContainer');
-        const followupInput = document.getElementById('editFollowupDateInput');
-        if (followupInput) {
-            followupInput.value = visit.follow_up_date || '';
-        }
-        if (cleanStatus === 'Meet Again') {
-            followupContainer?.classList.remove('hidden');
-        } else {
-            followupContainer?.classList.add('hidden');
-        }
-
-        // Reference of & Remarks & Address A
-        document.getElementById('editReferenceOfInput').value = visit.reference_of || (visit.ocr_extracted_data && visit.ocr_extracted_data.reference_of) || '';
-        document.getElementById('editRemarksInput').value = visit.remarks || '';
-        document.getElementById('editAddressOptionAInput').value = visit.address_option_a || visit.client_address || '';
-
-        // Reset replacement files
-        State.editVisitingCardFrontFile = null;
-        State.editVisitingCardBackFile = null;
-        State.editOfficePhotoFile = null;
-
-        // Photo previews
-        const frontPreview = document.getElementById('editCardFrontPreview');
-        const backPreview = document.getElementById('editCardBackPreview');
-        const officePreview = document.getElementById('editOfficePhotoPreview');
-
-        const cardFront = visit.visiting_card_front_url || visit.visiting_card_url;
-        if (frontPreview) {
-            frontPreview.innerHTML = cardFront 
-                ? `<img src="${cardFront}" class="w-full h-full object-cover rounded">` 
-                : `<span class="text-[10px] text-slate-400">None</span>`;
-        }
-        if (backPreview) {
-            backPreview.innerHTML = visit.visiting_card_back_url 
-                ? `<img src="${visit.visiting_card_back_url}" class="w-full h-full object-cover rounded">` 
-                : `<span class="text-[10px] text-slate-400">None</span>`;
-        }
-        if (officePreview) {
-            officePreview.innerHTML = visit.office_photo_url 
-                ? `<img src="${visit.office_photo_url}" class="w-full h-full object-cover rounded">` 
-                : `<span class="text-[10px] text-slate-400">None</span>`;
-        }
-
-        updateAreaDatalists();
-        modal.classList.remove('hidden');
-        initLucideIcons();
     }
 
     function closeEditVisitModal() {
