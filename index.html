@@ -423,16 +423,25 @@
                             </span>
                         </div>
                         
+                        <!-- Hidden Camera Input (Opens camera directly) -->
                         <input type="file" id="officePhotoInput" accept="image/*" capture="environment" class="hidden">
+                        <!-- Hidden Gallery Input (Opens photo library / gallery) -->
+                        <input type="file" id="officePhotoGalleryInput" accept="image/*" class="hidden">
                         
                         <div class="flex items-center gap-2">
-                            <button type="button" id="officePhotoBtn" class="flex-1 py-2 px-3 text-xs font-bold bg-white hover:bg-slate-50 border border-rose-300 rounded-lg flex items-center justify-center gap-1.5 text-slate-700 transition-colors shadow-sm">
-                                <i data-lucide="camera" class="w-4 h-4 text-rose-600"></i>
-                                <span id="officePhotoBtnText">Open Camera & Take Photo</span>
-                            </button>
+                            <div class="flex-1 grid grid-cols-2 gap-2">
+                                <button type="button" id="officePhotoBtn" class="py-2 px-2.5 text-xs font-bold bg-white hover:bg-rose-50 border border-rose-300 rounded-lg flex items-center justify-center gap-1.5 text-slate-700 transition-colors shadow-sm">
+                                    <i data-lucide="camera" class="w-3.5 h-3.5 text-rose-600"></i>
+                                    <span id="officePhotoBtnText">Camera</span>
+                                </button>
+                                <button type="button" id="officePhotoGalleryBtn" class="py-2 px-2.5 text-xs font-bold bg-white hover:bg-slate-100 border border-slate-300 rounded-lg flex items-center justify-center gap-1.5 text-slate-700 transition-colors shadow-sm">
+                                    <i data-lucide="image" class="w-3.5 h-3.5 text-indigo-600"></i>
+                                    <span id="officePhotoGalleryBtnText">Gallery</span>
+                                </button>
+                            </div>
                             <div id="officePhotoPreviewContainer" class="hidden relative w-10 h-10 flex-shrink-0">
                                 <img id="officePhotoPreviewImg" class="w-10 h-10 rounded-lg object-cover border border-slate-200 shadow-sm" alt="Office Photo">
-                                <button type="button" id="removeOfficePhotoBtn" class="absolute -top-1 -right-1 bg-red-600 text-white p-0.5 rounded-full shadow hover:bg-red-700">
+                                <button type="button" id="removeOfficePhotoBtn" class="absolute -top-1 -right-1 bg-red-600 text-white p-0.5 rounded-full shadow hover:bg-red-700" title="Remove Photo">
                                     <i data-lucide="x" class="w-3 h-3"></i>
                                 </button>
                             </div>
@@ -2268,6 +2277,6 @@
     </div>
 
     <!-- Main Application Script -->
-    <script src="js/app.js?v=2.7.3"></script>
+    <script src="js/app.js?v=2.7.4"></script>
 </body>
 </html>

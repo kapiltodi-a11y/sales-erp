@@ -4915,40 +4915,50 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
     // --------------------------------------------------------------------------
     function setupOfficePhotoUpload() {
         const officeBtn = document.getElementById('officePhotoBtn');
+        const galleryBtn = document.getElementById('officePhotoGalleryBtn');
         const officeInput = document.getElementById('officePhotoInput');
-        const btnText = document.getElementById('officePhotoBtnText');
+        const galleryInput = document.getElementById('officePhotoGalleryInput');
         const badge = document.getElementById('officePhotoBadge');
         const previewContainer = document.getElementById('officePhotoPreviewContainer');
         const previewImg = document.getElementById('officePhotoPreviewImg');
         const removeBtn = document.getElementById('removeOfficePhotoBtn');
 
-        officeBtn?.addEventListener('click', () => officeInput.click());
+        function handleFile(file) {
+            if (!file) return;
+            State.officePhotoFile = file;
+
+            const reader = new FileReader();
+            reader.onload = (re) => {
+                if (previewImg) previewImg.src = re.target.result;
+                previewContainer?.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+
+            badge?.classList.remove('hidden');
+            initLucideIcons();
+        }
+
+        officeBtn?.addEventListener('click', () => officeInput?.click());
+        galleryBtn?.addEventListener('click', () => galleryInput?.click());
 
         officeInput?.addEventListener('change', (e) => {
             const file = e.target.files?.[0];
-            if (file) {
-                State.officePhotoFile = file;
+            if (file) handleFile(file);
+        });
 
-                const reader = new FileReader();
-                reader.onload = (re) => {
-                    if (previewImg) previewImg.src = re.target.result;
-                    previewContainer?.classList.remove('hidden');
-                };
-                reader.readAsDataURL(file);
-
-                btnText.innerHTML = `<i data-lucide="check" class="w-4 h-4 text-emerald-600"></i> Office Photo Selected ✓`;
-                badge?.classList.remove('hidden');
-                initLucideIcons();
-            }
+        galleryInput?.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFile(file);
         });
 
         removeBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
             State.officePhotoFile = null;
-            officeInput.value = '';
+            if (officeInput) officeInput.value = '';
+            if (galleryInput) galleryInput.value = '';
             previewContainer?.classList.add('hidden');
             badge?.classList.add('hidden');
-            btnText.innerHTML = 'Open Camera & Take Photo';
+            if (previewImg) previewImg.src = '';
             initLucideIcons();
         });
     }
@@ -5201,12 +5211,14 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 const backCam = document.getElementById('visitingCardBackCameraInput');
                 const backFile = document.getElementById('visitingCardBackFileInput');
                 const officeInput = document.getElementById('officePhotoInput');
+                const officeGalleryInput = document.getElementById('officePhotoGalleryInput');
 
                 if (frontCam) frontCam.value = '';
                 if (frontFile) frontFile.value = '';
                 if (backCam) backCam.value = '';
                 if (backFile) backFile.value = '';
                 if (officeInput) officeInput.value = '';
+                if (officeGalleryInput) officeGalleryInput.value = '';
 
                 document.getElementById('visitingCardFrontPreviewImg').src = '';
                 document.getElementById('visitingCardBackPreviewImg').src = '';
@@ -5224,7 +5236,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 document.getElementById('officePhotoPreviewContainer')?.classList.add('hidden');
                 document.getElementById('officePhotoBadge')?.classList.add('hidden');
                 const officePhotoText = document.getElementById('officePhotoBtnText');
-                if (officePhotoText) officePhotoText.innerHTML = 'Open Camera & Take Photo';
+                if (officePhotoText) officePhotoText.innerHTML = 'Camera';
 
                 State.visitingCardFrontFile = null;
                 State.visitingCardBackFile = null;
