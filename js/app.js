@@ -5047,7 +5047,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const contactPersonName = document.getElementById('contactPersonNameInput').value.trim();
             const contactPersonPhone = document.getElementById('contactPersonPhoneInput').value.trim();
             const contactPersonEmail = document.getElementById('contactPersonEmailInput').value.trim();
-            const pincode = document.getElementById('pincodeInput').value.trim();
+            const pincode = (document.getElementById('pincodeInput')?.value || '').trim() || null;
             
             const statusSelect = document.getElementById('meetingStatusSelect');
             const status = statusSelect ? statusSelect.value : 'Positive';
@@ -5895,7 +5895,7 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
             const contactPersonName = document.getElementById('editContactPersonNameInput').value.trim();
             const contactPersonPhone = document.getElementById('editContactPersonPhoneInput').value.trim();
             const contactPersonEmail = document.getElementById('editContactPersonEmailInput').value.trim();
-            const pincode = document.getElementById('editPincodeInput').value.trim();
+            const pincode = (document.getElementById('editPincodeInput')?.value || '').trim() || null;
             const status = document.getElementById('editMeetingStatusSelect').value;
             const followUpDate = document.getElementById('editFollowupDateInput').value || null;
             const referenceOf = document.getElementById('editReferenceOfInput').value.trim();
