@@ -93,6 +93,11 @@
         return v;
     }
 
+    function safeStr(val) {
+        if (val === null || val === undefined) return '';
+        return String(val).trim();
+    }
+
     function prepareVisitForDatabase(v) {
         if (!v) return null;
         const cleanLat = (v.latitude !== null && v.latitude !== undefined && v.latitude !== '' && !isNaN(Number(v.latitude))) ? Number(v.latitude) : null;
@@ -106,11 +111,11 @@
             }
         }
 
-        const bName = (v.business_name || v.client_name || '').trim();
-        const addrA = (v.address_option_a || v.client_address || '').trim();
-        const addrB = (v.address_option_b || v.location_address || '').trim();
-        const areaStr = (v.area || (v.ocr_extracted_data && v.ocr_extracted_data.area) || '').trim();
-        const refStr = (v.reference_of || (v.ocr_extracted_data && v.ocr_extracted_data.reference_of) || '').trim();
+        const bName = safeStr(v.business_name || v.client_name);
+        const addrA = safeStr(v.address_option_a || v.client_address);
+        const addrB = safeStr(v.address_option_b || v.location_address);
+        const areaStr = safeStr(v.area || (v.ocr_extracted_data && v.ocr_extracted_data.area));
+        const refStr = safeStr(v.reference_of || (v.ocr_extracted_data && v.ocr_extracted_data.reference_of));
 
         let cleanStatus = 'Positive';
         if (v.status === 'Successful Closed' || v.status === 'Positive') {
@@ -130,7 +135,7 @@
             id: String(v.id || ('visit-' + Date.now())),
             sales_rep_id: String(v.sales_rep_id || 'rep-002'),
             sales_rep_name: sanitizeRepName(v.sales_rep_name, v.employee_id, v.sales_rep_id),
-            employee_id: (v.employee_id || '').trim(),
+            employee_id: safeStr(v.employee_id),
             business_name: bName || 'Client Visit',
             client_name: bName || 'Client Visit',
             area: areaStr || null,
@@ -142,13 +147,13 @@
             latitude: cleanLat,
             longitude: cleanLng,
             location_address: addrB || null,
-            contact_person_name: (v.contact_person_name || 'Contact Person').trim(),
-            contact_person_phone: (v.contact_person_phone || '').trim(),
-            contact_person_email: (v.contact_person_email || '').trim() || null,
-            pincode: (v.pincode || '').trim() || null,
+            contact_person_name: safeStr(v.contact_person_name || 'Contact Person'),
+            contact_person_phone: safeStr(v.contact_person_phone),
+            contact_person_email: safeStr(v.contact_person_email) || null,
+            pincode: safeStr(v.pincode) || null,
             status: cleanStatus,
             follow_up_date: cleanFollowUp,
-            remarks: (v.remarks || '').trim() || null,
+            remarks: safeStr(v.remarks) || null,
             visiting_card_front_url: v.visiting_card_front_url || v.visiting_card_url || null,
             visiting_card_back_url: v.visiting_card_back_url || null,
             visiting_card_url: v.visiting_card_front_url || v.visiting_card_url || null,
@@ -1712,17 +1717,17 @@
             officePhotoUrl = await uploadVisitImage(visitData.officePhotoFile, 'office_photos');
         }
 
-        const bName = (visitData.business_name || visitData.client_name || '').trim();
-        const areaStr = (visitData.area || '').trim();
-        const refStr = (visitData.reference_of || '').trim();
-        const addrA = (visitData.address_option_a || visitData.client_address || '').trim();
-        const addrB = (visitData.address_option_b || visitData.location_address || '').trim();
+        const bName = safeStr(visitData.business_name || visitData.client_name);
+        const areaStr = safeStr(visitData.area);
+        const refStr = safeStr(visitData.reference_of);
+        const addrA = safeStr(visitData.address_option_a || visitData.client_address);
+        const addrB = safeStr(visitData.address_option_b || visitData.location_address);
 
         const cleanRecord = prepareVisitForDatabase({
             id: 'visit-' + Date.now(),
             sales_rep_id: visitData.sales_rep_id || (State.currentUser?.id || 'rep-002'),
             sales_rep_name: sanitizeRepName(visitData.sales_rep_name || State.currentUser?.name, visitData.employee_id, visitData.sales_rep_id),
-            employee_id: (visitData.employee_id || State.currentUser?.employee_id || '').trim(),
+            employee_id: safeStr(visitData.employee_id || State.currentUser?.employee_id),
             business_name: bName,
             client_name: bName,
             area: areaStr,
@@ -1734,13 +1739,13 @@
             latitude: visitData.latitude ? Number(visitData.latitude) : null,
             longitude: visitData.longitude ? Number(visitData.longitude) : null,
             location_address: addrB,
-            contact_person_name: (visitData.contact_person_name || '').trim(),
-            contact_person_phone: (visitData.contact_person_phone || '').trim(),
-            contact_person_email: (visitData.contact_person_email || '').trim(),
-            pincode: (visitData.pincode || '').trim(),
+            contact_person_name: safeStr(visitData.contact_person_name),
+            contact_person_phone: safeStr(visitData.contact_person_phone),
+            contact_person_email: safeStr(visitData.contact_person_email),
+            pincode: safeStr(visitData.pincode),
             status: visitData.status || 'Positive',
             follow_up_date: visitData.follow_up_date || null,
-            remarks: (visitData.remarks || '').trim(),
+            remarks: safeStr(visitData.remarks),
             visiting_card_front_url: cardFrontUrl,
             visiting_card_back_url: cardBackUrl,
             visiting_card_url: cardFrontUrl,
@@ -1807,18 +1812,18 @@
                          (State.visits || []).find(v => String(v.id) === visitId) ||
                          local.find(v => String(v.id) === visitId) || {};
 
-        const bName = (visitData.business_name !== undefined ? visitData.business_name : (existing.business_name || existing.client_name || '')).trim();
-        const areaStr = (visitData.area !== undefined ? visitData.area : (existing.area || '')).trim();
-        const refStr = (visitData.reference_of !== undefined ? visitData.reference_of : (existing.reference_of || '')).trim();
-        const addrA = (visitData.address_option_a !== undefined ? visitData.address_option_a : (existing.address_option_a || existing.client_address || '')).trim();
-        const addrB = (visitData.address_option_b !== undefined ? visitData.address_option_b : (existing.address_option_b || existing.location_address || '')).trim();
+        const bName = safeStr(visitData.business_name !== undefined ? visitData.business_name : (existing.business_name || existing.client_name));
+        const areaStr = safeStr(visitData.area !== undefined ? visitData.area : existing.area);
+        const refStr = safeStr(visitData.reference_of !== undefined ? visitData.reference_of : existing.reference_of);
+        const addrA = safeStr(visitData.address_option_a !== undefined ? visitData.address_option_a : (existing.address_option_a || existing.client_address));
+        const addrB = safeStr(visitData.address_option_b !== undefined ? visitData.address_option_b : (existing.address_option_b || existing.location_address));
 
         const cleanRecord = prepareVisitForDatabase({
             ...existing,
             id: visitId,
             sales_rep_id: existing.sales_rep_id || (State.currentUser?.id || 'rep-002'),
             sales_rep_name: sanitizeRepName(existing.sales_rep_name || State.currentUser?.name, existing.employee_id, existing.sales_rep_id),
-            employee_id: (existing.employee_id || State.currentUser?.employee_id || '').trim(),
+            employee_id: safeStr(existing.employee_id || State.currentUser?.employee_id),
             business_name: bName || 'Client Visit',
             client_name: bName || 'Client Visit',
             area: areaStr,
@@ -1830,13 +1835,13 @@
             latitude: existing.latitude !== undefined ? existing.latitude : null,
             longitude: existing.longitude !== undefined ? existing.longitude : null,
             location_address: addrB,
-            contact_person_name: (visitData.contact_person_name !== undefined ? visitData.contact_person_name : (existing.contact_person_name || '')).trim(),
-            contact_person_phone: (visitData.contact_person_phone !== undefined ? visitData.contact_person_phone : (existing.contact_person_phone || '')).trim(),
-            contact_person_email: (visitData.contact_person_email !== undefined ? visitData.contact_person_email : (existing.contact_person_email || '')).trim(),
-            pincode: (visitData.pincode !== undefined ? visitData.pincode : (existing.pincode || '')).trim(),
+            contact_person_name: safeStr(visitData.contact_person_name !== undefined ? visitData.contact_person_name : existing.contact_person_name),
+            contact_person_phone: safeStr(visitData.contact_person_phone !== undefined ? visitData.contact_person_phone : existing.contact_person_phone),
+            contact_person_email: safeStr(visitData.contact_person_email !== undefined ? visitData.contact_person_email : existing.contact_person_email),
+            pincode: safeStr(visitData.pincode !== undefined ? visitData.pincode : existing.pincode),
             status: visitData.status || existing.status || 'Positive',
             follow_up_date: visitData.follow_up_date !== undefined ? visitData.follow_up_date : (existing.follow_up_date || null),
-            remarks: (visitData.remarks !== undefined ? visitData.remarks : (existing.remarks || '')).trim(),
+            remarks: safeStr(visitData.remarks !== undefined ? visitData.remarks : existing.remarks),
             visiting_card_front_url: cardFrontUrl || existing.visiting_card_front_url || existing.visiting_card_url || null,
             visiting_card_back_url: cardBackUrl || existing.visiting_card_back_url || null,
             visiting_card_url: cardFrontUrl || existing.visiting_card_url || null,
@@ -5039,21 +5044,21 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                 return;
             }
 
-            const businessName = document.getElementById('businessNameInput').value.trim();
-            const area = (document.getElementById('areaInput')?.value || '').trim();
-            const addressOptionA = document.getElementById('addressOptionAInput').value.trim();
-            const addressOptionB = document.getElementById('addressOptionBInput').value.trim();
-            const visitTime = document.getElementById('visitTimeInput').value;
-            const contactPersonName = document.getElementById('contactPersonNameInput').value.trim();
-            const contactPersonPhone = document.getElementById('contactPersonPhoneInput').value.trim();
-            const contactPersonEmail = document.getElementById('contactPersonEmailInput').value.trim();
-            const pincode = (document.getElementById('pincodeInput')?.value || '').trim() || null;
+            const businessName = safeStr(document.getElementById('businessNameInput')?.value);
+            const area = safeStr(document.getElementById('areaInput')?.value);
+            const addressOptionA = safeStr(document.getElementById('addressOptionAInput')?.value);
+            const addressOptionB = safeStr(document.getElementById('addressOptionBInput')?.value);
+            const visitTime = document.getElementById('visitTimeInput')?.value;
+            const contactPersonName = safeStr(document.getElementById('contactPersonNameInput')?.value);
+            const contactPersonPhone = safeStr(document.getElementById('contactPersonPhoneInput')?.value);
+            const contactPersonEmail = safeStr(document.getElementById('contactPersonEmailInput')?.value);
+            const pincode = safeStr(document.getElementById('pincodeInput')?.value);
             
             const statusSelect = document.getElementById('meetingStatusSelect');
             const status = statusSelect ? statusSelect.value : 'Positive';
             const followUpDate = document.getElementById('followupDateInput')?.value || null;
-            const referenceOf = (document.getElementById('referenceOfInput')?.value || '').trim();
-            const remarks = (document.getElementById('remarksInput')?.value || '').trim();
+            const referenceOf = safeStr(document.getElementById('referenceOfInput')?.value);
+            const remarks = safeStr(document.getElementById('remarksInput')?.value);
 
             if (!businessName) {
                 alert('Business Name is required.');
@@ -5888,47 +5893,48 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
         form?.addEventListener('submit', async (e) => {
             e.preventDefault();
 
-            const visitId = document.getElementById('editVisitId').value;
-            const businessName = document.getElementById('editBusinessNameInput').value.trim();
-            const area = document.getElementById('editAreaInput').value.trim();
-            const visitTime = document.getElementById('editVisitTimeInput').value;
-            const contactPersonName = document.getElementById('editContactPersonNameInput').value.trim();
-            const contactPersonPhone = document.getElementById('editContactPersonPhoneInput').value.trim();
-            const contactPersonEmail = document.getElementById('editContactPersonEmailInput').value.trim();
-            const pincode = (document.getElementById('editPincodeInput')?.value || '').trim() || null;
-            const status = document.getElementById('editMeetingStatusSelect').value;
-            const followUpDate = document.getElementById('editFollowupDateInput').value || null;
-            const referenceOf = document.getElementById('editReferenceOfInput').value.trim();
-            const remarks = document.getElementById('editRemarksInput').value.trim();
-            const addressOptionA = document.getElementById('editAddressOptionAInput').value.trim();
+            const visitId = document.getElementById('editVisitId')?.value || '';
+            const businessName = safeStr(document.getElementById('editBusinessNameInput')?.value);
+            const area = safeStr(document.getElementById('editAreaInput')?.value);
+            const visitTime = document.getElementById('editVisitTimeInput')?.value;
+            const contactPersonName = safeStr(document.getElementById('editContactPersonNameInput')?.value);
+            const contactPersonPhone = safeStr(document.getElementById('editContactPersonPhoneInput')?.value);
+            const contactPersonEmail = safeStr(document.getElementById('editContactPersonEmailInput')?.value);
+            const editPinElem = document.getElementById('editPincodeInput');
+            const pincode = editPinElem ? editPinElem.value.trim() : undefined;
+            const status = document.getElementById('editMeetingStatusSelect')?.value || 'Positive';
+            const followUpDate = document.getElementById('editFollowupDateInput')?.value || null;
+            const referenceOf = safeStr(document.getElementById('editReferenceOfInput')?.value);
+            const remarks = safeStr(document.getElementById('editRemarksInput')?.value);
+            const addressOptionA = safeStr(document.getElementById('editAddressOptionAInput')?.value);
 
             if (!businessName) {
                 alert('Business Name is required.');
-                document.getElementById('editBusinessNameInput').focus();
+                document.getElementById('editBusinessNameInput')?.focus();
                 return;
             }
 
             if (!area) {
                 alert('⚠️ Area is mandatory!\n\nPlease enter the Area name before saving.');
-                document.getElementById('editAreaInput').focus();
+                document.getElementById('editAreaInput')?.focus();
                 return;
             }
 
             if (!contactPersonName) {
                 alert('Contact Person Name is required.');
-                document.getElementById('editContactPersonNameInput').focus();
+                document.getElementById('editContactPersonNameInput')?.focus();
                 return;
             }
 
             if (!contactPersonPhone) {
                 alert('Contact Mobile Number is required.');
-                document.getElementById('editContactPersonPhoneInput').focus();
+                document.getElementById('editContactPersonPhoneInput')?.focus();
                 return;
             }
 
             if (status === 'Meet Again' && !followUpDate) {
                 alert('⚠️ Next Follow-up Date is required when status is "Meet Again"!\n\nPlease select the Next Follow-up Date.');
-                document.getElementById('editFollowupDateInput').focus();
+                document.getElementById('editFollowupDateInput')?.focus();
                 return;
             }
 
@@ -5949,7 +5955,6 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     contact_person_name: contactPersonName,
                     contact_person_phone: contactPersonPhone,
                     contact_person_email: contactPersonEmail,
-                    pincode: pincode,
                     status: status,
                     follow_up_date: followUpDate,
                     remarks: remarks,
@@ -5958,6 +5963,9 @@ CREATE POLICY "Public access to visit photos" ON storage.objects FOR ALL TO anon
                     visitingCardBackFile: State.editVisitingCardBackFile,
                     officePhotoFile: State.editOfficePhotoFile
                 };
+                if (pincode !== undefined) {
+                    updatePayload.pincode = pincode;
+                }
 
                 await updateClientVisit(updatePayload);
                 saveKnownArea(area);
