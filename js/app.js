@@ -84,12 +84,20 @@
 
     function extractVisitCustomFields(v) {
         if (!v || typeof v !== 'object') return v;
-        if (v.ocr_extracted_data && typeof v.ocr_extracted_data === 'object') {
-            if (!v.area && v.ocr_extracted_data.area) v.area = v.ocr_extracted_data.area;
-            if (!v.reference_of && v.ocr_extracted_data.reference_of) v.reference_of = v.ocr_extracted_data.reference_of;
+        let ocr = v.ocr_extracted_data;
+        if (typeof ocr === 'string') {
+            try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
         }
+        if (ocr && typeof ocr === 'object') {
+            if (!v.area && ocr.area) v.area = String(ocr.area).trim();
+            if (!v.reference_of && ocr.reference_of) v.reference_of = String(ocr.reference_of).trim();
+        }
+        if (v.area) v.area = String(v.area).trim();
+        if (v.reference_of) v.reference_of = String(v.reference_of).trim();
+
         if (v.status === 'Successful Closed') v.status = 'Positive';
-        if (v.status === 'Follow-up Required') v.status = 'Meet Again';
+        else if (v.status === 'Follow-up Required') v.status = 'Meet Again';
+        else if (!v.status) v.status = 'Positive';
         return v;
     }
 
@@ -1372,7 +1380,11 @@
         }
 
         // Area & Reference Of normalization
-        const ocr = (v.ocr_extracted_data && typeof v.ocr_extracted_data === 'object') ? v.ocr_extracted_data : {};
+        let ocr = v.ocr_extracted_data;
+        if (typeof ocr === 'string') {
+            try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
+        }
+        if (!ocr || typeof ocr !== 'object') ocr = {};
         if (!v.area && ocr.area) v.area = String(ocr.area).trim();
         if (!v.reference_of && ocr.reference_of) v.reference_of = String(ocr.reference_of).trim();
         if (v.area) v.area = String(v.area).trim();
@@ -2339,7 +2351,7 @@
         const headers = [
             'Business Name',
             'Area',
-            'Meeting Status',
+            'Status',
             'Name of Person Met',
             'Contact Mobile Number',
             'Reference of',
@@ -2360,8 +2372,27 @@
         const rows = exportData.map(v => {
             const dateStr = v.visit_time ? new Date(v.visit_time).toLocaleString() : '';
             const bName = v.business_name || v.client_name || '';
-            const areaStr = v.area || (v.ocr_extracted_data && v.ocr_extracted_data.area) || '';
-            const refStr = v.reference_of || (v.ocr_extracted_data && v.ocr_extracted_data.reference_of) || '';
+            
+            // Extract Area safely
+            let areaStr = v.area || '';
+            if (!areaStr && v.ocr_extracted_data) {
+                let ocr = v.ocr_extracted_data;
+                if (typeof ocr === 'string') {
+                    try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
+                }
+                if (ocr && typeof ocr === 'object') areaStr = ocr.area || '';
+            }
+
+            // Extract Reference of safely
+            let refStr = v.reference_of || '';
+            if (!refStr && v.ocr_extracted_data) {
+                let ocr = v.ocr_extracted_data;
+                if (typeof ocr === 'string') {
+                    try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
+                }
+                if (ocr && typeof ocr === 'object') refStr = ocr.reference_of || '';
+            }
+
             const addrA = v.address_option_a || v.client_address || '';
             const addrB = v.address_option_b || v.location_address || '';
             const mapsUrl = (v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : '';
@@ -2375,6 +2406,7 @@
             let statusClean = v.status || '';
             if (statusClean === 'Successful Closed') statusClean = 'Positive';
             else if (statusClean === 'Follow-up Required') statusClean = 'Meet Again';
+            else if (!statusClean) statusClean = 'Positive';
 
             return [
                 bName,
@@ -2404,22 +2436,24 @@
             wb = window.XLSX.utils.book_new();
             const ws = window.XLSX.utils.aoa_to_sheet(sheetData);
             ws['!cols'] = [
-                { wch: 28 }, // Business Name
-                { wch: 22 }, // Name of Person
-                { wch: 18 }, // Mobile
-                { wch: 38 }, // Remarks
-                { wch: 18 }, // Next Follow-up
-                { wch: 18 }, // Status
-                { wch: 22 }, // Visiting Card Photo
-                { wch: 22 }, // Office Photo
-                { wch: 20 }, // Date & Time
-                { wch: 20 }, // Sales Rep
-                { wch: 12 }, // Emp ID
-                { wch: 24 }, // Email
-                { wch: 10 }, // Pin
-                { wch: 30 }, // Option A
-                { wch: 30 }, // Option B
-                { wch: 30 }  // Maps Link
+                { wch: 28 }, // 1. Business Name
+                { wch: 22 }, // 2. Area
+                { wch: 16 }, // 3. Status
+                { wch: 22 }, // 4. Name of Person Met
+                { wch: 18 }, // 5. Contact Mobile Number
+                { wch: 20 }, // 6. Reference of
+                { wch: 38 }, // 7. Remarks
+                { wch: 18 }, // 8. Next Follow-up Date
+                { wch: 22 }, // 9. Visiting Card Photo
+                { wch: 22 }, // 10. Office Photo
+                { wch: 20 }, // 11. Visit Date & Time
+                { wch: 20 }, // 12. Sales Representative
+                { wch: 12 }, // 13. Employee ID
+                { wch: 24 }, // 14. Contact Email ID
+                { wch: 10 }, // 15. Pin Code
+                { wch: 30 }, // 16. Address Option A
+                { wch: 30 }, // 17. Address Option B
+                { wch: 30 }  // 18. Google Maps Link
             ];
             const sheetName = isSalesRep() ? 'My Visits' : 'All Visits';
             window.XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -2445,12 +2479,28 @@
         }
 
         const headers = [
-            'Sales Representative', 'Employee ID', 'Visit Date & Time', 'Business Name', 'Common Account (Shared)?',
-            'Contact Person Name', 'Contact Mobile Number', 'Contact Email ID', 'Pin Code',
-            'Address Option A (Card / Manual)', 'Address Option B (Auto GPS Location)',
-            'Latitude', 'Longitude', 'Google Maps Link',
-            'Meeting Status', 'Follow-up Date', 'Remarks', 'Office Photo URL',
-            'Visiting Card Front URL', 'Visiting Card Back URL'
+            'Business Name',
+            'Area',
+            'Status',
+            'Sales Representative',
+            'Employee ID',
+            'Visit Date & Time',
+            'Common Account (Shared)?',
+            'Contact Person Name',
+            'Contact Mobile Number',
+            'Contact Email ID',
+            'Reference of',
+            'Pin Code',
+            'Address Option A (Card / Manual)',
+            'Address Option B (Auto GPS Location)',
+            'Latitude',
+            'Longitude',
+            'Google Maps Link',
+            'Follow-up Date',
+            'Remarks',
+            'Office Photo URL',
+            'Visiting Card Front URL',
+            'Visiting Card Back URL'
         ];
 
         const escapeCsv = (val) => {
@@ -2462,23 +2512,49 @@
         const rows = visits.map(v => {
             const bName = v.business_name || v.client_name || '';
             const isCommon = State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(bName));
+            
+            let areaStr = v.area || '';
+            if (!areaStr && v.ocr_extracted_data) {
+                let ocr = v.ocr_extracted_data;
+                if (typeof ocr === 'string') {
+                    try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
+                }
+                if (ocr && typeof ocr === 'object') areaStr = ocr.area || '';
+            }
+
+            let refStr = v.reference_of || '';
+            if (!refStr && v.ocr_extracted_data) {
+                let ocr = v.ocr_extracted_data;
+                if (typeof ocr === 'string') {
+                    try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
+                }
+                if (ocr && typeof ocr === 'object') refStr = ocr.reference_of || '';
+            }
+
+            let statusClean = v.status || '';
+            if (statusClean === 'Successful Closed') statusClean = 'Positive';
+            else if (statusClean === 'Follow-up Required') statusClean = 'Meet Again';
+            else if (!statusClean) statusClean = 'Positive';
+
             return [
+                escapeCsv(bName),
+                escapeCsv(areaStr),
+                escapeCsv(statusClean),
                 escapeCsv(v.sales_rep_name),
                 escapeCsv(v.employee_id || ''),
                 escapeCsv(v.visit_time ? new Date(v.visit_time).toLocaleString() : ''),
-                escapeCsv(bName),
                 escapeCsv(isCommon ? 'YES' : 'NO'),
                 escapeCsv(v.contact_person_name),
                 escapeCsv(v.contact_person_phone),
                 escapeCsv(v.contact_person_email || ''),
+                escapeCsv(refStr),
                 escapeCsv(v.pincode || ''),
                 escapeCsv(v.address_option_a || v.client_address || ''),
                 escapeCsv(v.address_option_b || v.location_address || ''),
                 escapeCsv(v.latitude || ''),
                 escapeCsv(v.longitude || ''),
                 escapeCsv((v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : ''),
-                escapeCsv(v.status),
-                escapeCsv(v.follow_up_date || ''),
+                escapeCsv(v.follow_up_date || (statusClean === 'Positive' ? 'Deal Finalized' : '')),
                 escapeCsv(v.remarks),
                 escapeCsv(v.office_photo_url || ''),
                 escapeCsv(v.visiting_card_front_url || v.visiting_card_url || ''),
@@ -2542,22 +2618,49 @@
 
         // 2. SHEET 2: Visits Activity Ledger
         const headers = [
-            'Visit Date & Time', 'Business Name', 'Common Account (Shared)?', 'Contact Person Name', 'Mobile Number',
-            'Email ID', 'Pin Code', 'Status', 'Follow-up Date (11:30 AM)', 'Option A Address (Card/Manual)',
+            'Visit Date & Time', 'Business Name', 'Area', 'Status', 'Common Account (Shared)?',
+            'Contact Person Name', 'Mobile Number', 'Email ID', 'Reference of', 'Pin Code',
+            'Follow-up Date (11:30 AM)', 'Option A Address (Card/Manual)',
             'Option B Verified GPS Address', 'Google Maps Link', 'Remarks & Notes'
         ];
         const visitRows = visits.map(v => {
             const isCommon = State.commonAccountsMap && State.commonAccountsMap.has(normalizeBusinessName(v.business_name || v.client_name));
+            
+            let areaStr = v.area || '';
+            if (!areaStr && v.ocr_extracted_data) {
+                let ocr = v.ocr_extracted_data;
+                if (typeof ocr === 'string') {
+                    try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
+                }
+                if (ocr && typeof ocr === 'object') areaStr = ocr.area || '';
+            }
+
+            let refStr = v.reference_of || '';
+            if (!refStr && v.ocr_extracted_data) {
+                let ocr = v.ocr_extracted_data;
+                if (typeof ocr === 'string') {
+                    try { ocr = JSON.parse(ocr); } catch (e) { ocr = {}; }
+                }
+                if (ocr && typeof ocr === 'object') refStr = ocr.reference_of || '';
+            }
+
+            let statusClean = v.status || '';
+            if (statusClean === 'Successful Closed') statusClean = 'Positive';
+            else if (statusClean === 'Follow-up Required') statusClean = 'Meet Again';
+            else if (!statusClean) statusClean = 'Positive';
+
             return [
                 v.visit_time ? new Date(v.visit_time).toLocaleString() : '',
                 v.business_name || v.client_name || '',
+                areaStr,
+                statusClean,
                 isCommon ? 'YES (Multi-Rep Common Account)' : 'No',
                 v.contact_person_name || '',
                 v.contact_person_phone || '',
                 v.contact_person_email || '',
+                refStr,
                 v.pincode || '',
-                v.status || '',
-                v.follow_up_date ? `${v.follow_up_date} at 11:30 AM` : '',
+                v.follow_up_date ? `${v.follow_up_date} at 11:30 AM` : (statusClean === 'Positive' ? 'Deal Finalized' : ''),
                 v.address_option_a || v.client_address || '',
                 v.address_option_b || v.location_address || '',
                 (v.latitude && v.longitude) ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : '',
@@ -2566,9 +2669,21 @@
         });
         const wsVisits = window.XLSX.utils.aoa_to_sheet([headers, ...visitRows]);
         wsVisits['!cols'] = [
-            { wch: 22 }, { wch: 28 }, { wch: 28 }, { wch: 20 }, { wch: 18 },
-            { wch: 24 }, { wch: 12 }, { wch: 18 }, { wch: 24 }, { wch: 35 },
-            { wch: 35 }, { wch: 30 }, { wch: 40 }
+            { wch: 22 }, // Date & Time
+            { wch: 28 }, // Business Name
+            { wch: 22 }, // Area
+            { wch: 16 }, // Status
+            { wch: 28 }, // Common Account
+            { wch: 20 }, // Contact Name
+            { wch: 18 }, // Mobile
+            { wch: 24 }, // Email
+            { wch: 20 }, // Reference of
+            { wch: 12 }, // Pin Code
+            { wch: 24 }, // Follow-up Date
+            { wch: 35 }, // Option A
+            { wch: 35 }, // Option B
+            { wch: 30 }, // Maps Link
+            { wch: 40 }  // Remarks
         ];
         window.XLSX.utils.book_append_sheet(wb, wsVisits, 'Visit Activity Ledger');
 
@@ -2598,60 +2713,6 @@
         const cleanPeriod = (period || 'ALL').replace(/[^a-zA-Z0-9]/g, '_');
         const fileName = `MIS_Report_${cleanRep}_${cleanPeriod}_${new Date().toISOString().split('T')[0]}.xlsx`;
         downloadExcelFile(wb, fileName, null);
-    }
-
-    function exportVisitsToCsv(visits) {
-        if (!visits || !visits.length) {
-            alert('No visits to export.');
-            return;
-        }
-
-        const headers = [
-            'Sales Representative', 'Employee ID', 'Visit Date & Time', 'Business Name',
-            'Contact Person Name', 'Contact Mobile Number', 'Contact Email ID', 'Pin Code',
-            'Address Option A (Card / Manual)', 'Address Option B (Auto GPS Location)',
-            'Latitude', 'Longitude', 'Google Maps Link',
-            'Meeting Status', 'Follow-up Date', 'Remarks', 'Office Photo URL',
-            'Visiting Card Front URL', 'Visiting Card Back URL'
-        ];
-
-        const escapeCsv = (val) => {
-            if (val === null || val === undefined) return '""';
-            const str = String(val).replace(/"/g, '""');
-            return `"${str}"`;
-        };
-
-        const rows = visits.map(v => [
-            escapeCsv(v.sales_rep_name),
-            escapeCsv(v.employee_id || ''),
-            escapeCsv(v.visit_time ? new Date(v.visit_time).toLocaleString() : ''),
-            escapeCsv(v.business_name || v.client_name || ''),
-            escapeCsv(v.contact_person_name),
-            escapeCsv(v.contact_person_phone),
-            escapeCsv(v.contact_person_email || ''),
-            escapeCsv(v.pincode || ''),
-            escapeCsv(v.address_option_a || v.client_address || ''),
-            escapeCsv(v.address_option_b || v.location_address || ''),
-            escapeCsv(v.latitude || ''),
-            escapeCsv(v.longitude || ''),
-            escapeCsv(v.latitude && v.longitude ? `https://www.google.com/maps?q=${v.latitude},${v.longitude}` : ''),
-            escapeCsv(v.status),
-            escapeCsv(v.follow_up_date || ''),
-            escapeCsv(v.remarks),
-            escapeCsv(v.office_photo_url || ''),
-            escapeCsv(v.visiting_card_front_url || v.visiting_card_url || ''),
-            escapeCsv(v.visiting_card_back_url || '')
-        ].join(','));
-
-        const csvContent = [headers.join(','), ...rows].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.setAttribute('href', url);
-        link.setAttribute('download', `sales_visits_report_${new Date().toISOString().split('T')[0]}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
     }
 
     // --------------------------------------------------------------------------
@@ -2786,6 +2847,9 @@ CREATE TABLE IF NOT EXISTS public.client_visits (
     sales_rep_name VARCHAR(255) NOT NULL,
     business_name VARCHAR(255) NOT NULL,
     client_name VARCHAR(255),
+    area VARCHAR(255),
+    status VARCHAR(50) NOT NULL DEFAULT 'Positive',
+    reference_of VARCHAR(255),
     address_option_a TEXT NOT NULL,
     address_option_b TEXT,
     client_address TEXT,
@@ -2797,7 +2861,6 @@ CREATE TABLE IF NOT EXISTS public.client_visits (
     contact_person_phone VARCHAR(50) NOT NULL,
     contact_person_email VARCHAR(255),
     pincode VARCHAR(20),
-    status VARCHAR(50) NOT NULL DEFAULT 'Follow-up Required',
     follow_up_date DATE,
     remarks TEXT,
     visiting_card_front_url TEXT,
@@ -2808,6 +2871,20 @@ CREATE TABLE IF NOT EXISTS public.client_visits (
     ocr_extracted_data JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
+
+-- Ensure Area, Reference Of, and Status columns exist on existing databases
+ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS area VARCHAR(255);
+ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS reference_of VARCHAR(255);
+ALTER TABLE public.client_visits ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Positive';
+
+-- Auto-backfill Area and Reference Of from ocr_extracted_data for existing records
+UPDATE public.client_visits 
+SET area = ocr_extracted_data->>'area' 
+WHERE (area IS NULL OR area = '') AND ocr_extracted_data->>'area' IS NOT NULL;
+
+UPDATE public.client_visits 
+SET reference_of = ocr_extracted_data->>'reference_of' 
+WHERE (reference_of IS NULL OR reference_of = '') AND ocr_extracted_data->>'reference_of' IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_visits_sales_rep_id ON public.client_visits(sales_rep_id);
 CREATE INDEX IF NOT EXISTS idx_visits_visit_time ON public.client_visits(visit_time DESC);
